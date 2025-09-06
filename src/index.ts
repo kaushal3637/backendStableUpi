@@ -1,0 +1,101 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import { config } from './services/config';
+import paymentRoutes from './routes/payment';
+import {
+  securityHeaders,
+  createRateLimiter,
+  requestLogger,
+  corsOptions
+} from './middleware/security';
+
+const app = express();
+
+// Security middleware
+app.use(securityHeaders);
+app.use(createRateLimiter());
+
+// CORS configuration
+app.use(cors(corsOptions));
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Request logging
+app.use(requestLogger);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: config.nodeEnv
+  });
+});
+
+// API routes
+app.use('/api/payments', paymentRoutes);
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint not found'
+  });
+});
+
+// Global error handler
+app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Global error handler:', error);
+
+  // Handle CORS errors
+  if (error.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS policy violation'
+    });
+  }
+
+  // Handle validation errors
+  if (error.isJoi) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation error',
+      details: error.details
+    });
+  }
+
+  // Handle other errors
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error'
+  });
+});
+
+// Start server
+const server = app.listen(config.port, () => {
+  console.log(`🚀 Backend server started on port ${config.port}`);
+  console.log(`📝 Environment: ${config.nodeEnv}`);
+  console.log(`🔗 Health check: http://localhost:${config.port}/health`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Process terminated');
+    process.exit(0);
+  });
+});
+
+export default app;

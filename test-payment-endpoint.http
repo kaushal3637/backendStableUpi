@@ -1,0 +1,38 @@
+# Test file for Backend StableUPI API
+# Use this with REST Client extension or similar tools
+
+### Health Check
+GET http://localhost:3001/health
+
+### Process ERC-7702 Payment (Example Request)
+POST http://localhost:3001/api/payments/process
+Content-Type: application/json
+X-API-Key: your_development_api_key_here
+
+{
+  "userOp": {
+    "sender": "0x1234567890123456789012345678901234567890",
+    "nonce": "0x1",
+    "initCode": "0x",
+    "callData": "0x",
+    "callGasLimit": "0x186a0",
+    "verificationGasLimit": "0x186a0",
+    "preVerificationGas": "0x5208",
+    "maxFeePerGas": "0x5f5e100",
+    "maxPriorityFeePerGas": "0x5f5e100",
+    "paymasterAndData": "0x",
+    "signature": "0x"
+  },
+  "upiMerchantDetails": {
+    "pa": "merchant@upi",
+    "pn": "Test Merchant",
+    "am": "100.00",
+    "cu": "INR",
+    "mc": "1234",
+    "tr": "TXN123456"
+  },
+  "chainId": 421614
+}
+
+### Check Payment Status
+GET http://localhost:3001/api/payments/status/0x123456789012345678901234567890123456789012345678901234567890
