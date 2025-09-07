@@ -35,6 +35,38 @@ app.get('/health', (req, res) => {
   });
 });
 
+// IP address endpoint
+app.get('/ip', (req, res) => {
+  try {
+    // Get client IP address
+    const clientIP = req.ip || 
+                    req.connection.remoteAddress || 
+                    req.socket.remoteAddress || 
+                    req.headers['x-forwarded-for']?.toString().split(',')[0] ||
+                    'unknown';
+    
+    res.status(200).json({
+      success: true,
+      server: {
+        port: config.port,
+        environment: config.nodeEnv,
+        hostname: req.hostname || 'localhost'
+      },
+      client: {
+        ip: clientIP,
+        userAgent: req.headers['user-agent'] || 'unknown'
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting IP information:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get IP information'
+    });
+  }
+});
+
 // API routes
 app.use('/api/payments', paymentRoutes);
 
@@ -79,6 +111,7 @@ const server = app.listen(config.port, () => {
   console.log(`🚀 Backend server started on port ${config.port}`);
   console.log(`📝 Environment: ${config.nodeEnv}`);
   console.log(`🔗 Health check: http://localhost:${config.port}/health`);
+  console.log(`🌐 IP endpoint: http://localhost:${config.port}/ip`);
 });
 
 // Graceful shutdown
