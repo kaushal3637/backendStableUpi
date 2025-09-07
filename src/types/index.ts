@@ -1,4 +1,30 @@
-// ERC-7702 User Operation types
+// EIP-7702 Authorization types
+export interface EIP7702Authorization {
+  chainId: number;
+  address: string; // Delegation contract address
+  nonce: string;
+  yParity: number;
+  r: string;
+  s: string;
+}
+
+// EIP-7702 Call structure
+export interface EIP7702Call {
+  to: string;
+  value: string;
+  data: string;
+}
+
+// EIP-7702 Sponsored Transaction Request
+export interface EIP7702SponsoredRequest {
+  userAddress: string; // EOA address
+  calls: EIP7702Call[];
+  authorization: EIP7702Authorization;
+  upiMerchantDetails: UPIMerchantDetails;
+  chainId: number;
+}
+
+// Legacy UserOperation (keep for compatibility)
 export interface UserOperation {
   sender: string;
   nonce: string;
@@ -14,7 +40,8 @@ export interface UserOperation {
 }
 
 export interface ERC7702Request {
-  userOp: UserOperation;
+  userOp?: UserOperation; // Optional for legacy support
+  sponsoredRequest?: EIP7702SponsoredRequest; // New sponsored transaction
   upiMerchantDetails: UPIMerchantDetails;
   chainId: number;
 }
@@ -78,7 +105,6 @@ export interface BlockchainConfig {
   rpcUrl: string;
   chainId: number;
   usdcContractAddress: string;
-  entryPointAddress: string;
 }
 
 export interface UPIConfig {

@@ -5,8 +5,10 @@ import { config } from './config';
 export class UserOpService {
   private provider: ethers.JsonRpcProvider;
   private signer: ethers.Wallet;
+  private chainId: number;
 
   constructor(chainId: number) {
+    this.chainId = chainId;
     const blockchainConfig = config.getBlockchainConfig(chainId);
     this.provider = new ethers.JsonRpcProvider(blockchainConfig.rpcUrl);
     this.signer = new ethers.Wallet(config.backendPrivateKey, this.provider);
@@ -24,6 +26,17 @@ export class UserOpService {
 
       if (!userOp.callData || userOp.callData === '0x') {
         throw new Error('Invalid callData');
+      }
+
+      // Validate all fields are properly formatted hex strings
+      const hexFields = ['nonce', 'initCode', 'callData', 'callGasLimit', 'verificationGasLimit',
+                        'preVerificationGas', 'maxFeePerGas', 'maxPriorityFeePerGas', 'paymasterAndData', 'signature'];
+
+      for (const field of hexFields) {
+        const value = userOp[field as keyof UserOperation];
+        if (typeof value !== 'string' || !value.startsWith('0x')) {
+          throw new Error(`Invalid ${field}: must be a hex string starting with 0x`);
+        }
       }
 
       // Validate gas limits are reasonable
@@ -52,31 +65,20 @@ export class UserOpService {
    */
   public async executeUserOp(userOp: UserOperation): Promise<string> {
     try {
-      // For ERC-7702, we need to use the EntryPoint contract
-      const blockchainConfig = config.getBlockchainConfig(parseInt(await this.provider.getNetwork().then(n => n.chainId.toString())));
+      // Check network first
+      const network = await this.provider.getNetwork();
+      console.log('Network:', network.name, 'Chain ID:', network.chainId);
+      console.log('Expected Chain ID:', this.chainId);
 
-      // Create EntryPoint contract instance
-      const entryPointAbi = [
-        'function handleOps((address,uint256,bytes,bytes,uint256,uint256,uint256,uint256,uint256,bytes,bytes)[], address) external'
-      ];
-
-      const entryPoint = new ethers.Contract(
-        blockchainConfig.entryPointAddress,
-        entryPointAbi,
-        this.signer
-      );
-
-      // Execute the UserOperation through EntryPoint
-      const tx = await entryPoint.handleOps([userOp], this.signer.address);
-
-      // Wait for transaction confirmation
-      const receipt = await tx.wait();
-
-      if (!receipt || receipt.status !== 1) {
-        throw new Error('UserOp execution failed');
+      if (Number(network.chainId) !== this.chainId) {
+        console.warn(`Network mismatch! Connected to ${network.name} (${network.chainId}) but expected chain ${this.chainId}`);
       }
 
-      return receipt.hash;
+      // Note: This is legacy UserOp execution - for EIP-7702, we should use the EIP7702Service instead
+      console.warn('⚠️  Warning: Legacy UserOp execution is deprecated. Use EIP-7702 sponsored transactions instead.');
+      
+      // Legacy UserOp execution is not supported in EIP-7702 architecture
+      throw new Error('Legacy UserOp execution not supported. Please use EIP-7702 sponsored transactions via the /api/payments/process endpoint with sponsoredRequest.');
     } catch (error) {
       console.error('Error executing UserOp:', error);
       throw new Error(`UserOp execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -84,10 +86,19 @@ export class UserOpService {
   }
 
   /**
-   * Processes the complete ERC-7702 request
+   * Processes the complete ERC-7702 request (LEGACY - Use EIP7702Service instead)
    */
   public async processERC7702Request(request: ERC7702Request): Promise<ERC7702Response> {
     try {
+      // Check if this is a legacy UserOp request
+      if (!request.userOp) {
+        return {
+          success: false,
+          status: 'failed',
+          error: 'Legacy UserOp not provided. Use EIP-7702 sponsored transactions instead.'
+        };
+      }
+
       // Validate UserOp
       const isValid = await this.validateUserOp(request.userOp);
       if (!isValid) {
@@ -98,7 +109,7 @@ export class UserOpService {
         };
       }
 
-      // Execute UserOp
+      // Execute UserOp (will throw error directing to use EIP-7702)
       const transactionHash = await this.executeUserOp(request.userOp);
 
       return {

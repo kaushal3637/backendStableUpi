@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
-import { ERC7702Request, APIResponse } from '../types';
+import { ERC7702Request, APIResponse, EIP7702SponsoredRequest } from '../types';
 import { PaymentOrchestrator } from '../services/paymentOrchestrator';
 import { config } from '../services/config';
 
@@ -30,11 +30,39 @@ const upiMerchantSchema = Joi.object({
   tr: Joi.string().optional(),
 });
 
-const erc7702RequestSchema = Joi.object({
-  userOp: userOpSchema.required(),
+// EIP-7702 Authorization schema
+const authorizationSchema = Joi.object({
+  chainId: Joi.number().required(),
+  address: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  nonce: Joi.string().required(),
+  yParity: Joi.number().valid(0, 1).required(),
+  r: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+  s: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+});
+
+// EIP-7702 Call schema
+const callSchema = Joi.object({
+  to: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  value: Joi.string().default("0"),
+  data: Joi.string().pattern(/^0x[a-fA-F0-9]*$/).default("0x"),
+});
+
+// EIP-7702 Sponsored Request schema
+const sponsoredRequestSchema = Joi.object({
+  userAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  calls: Joi.array().items(callSchema).min(1).required(),
+  authorization: authorizationSchema.required(),
   upiMerchantDetails: upiMerchantSchema.required(),
   chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
 });
+
+// Updated main request schema (supports both legacy and sponsored)
+const erc7702RequestSchema = Joi.object({
+  userOp: userOpSchema.optional(),
+  sponsoredRequest: sponsoredRequestSchema.optional(),
+  upiMerchantDetails: upiMerchantSchema.required(),
+  chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
+}).xor('userOp', 'sponsoredRequest'); // Must have either userOp OR sponsoredRequest
 
 /**
  * POST /api/payments/process
@@ -62,11 +90,20 @@ router.post('/process', async (req: Request, res: Response) => {
 
     const request: ERC7702Request = value;
 
-    console.log('Processing ERC-7702 payment request:', {
-      chainId: request.chainId,
-      sender: request.userOp.sender,
-      payee: request.upiMerchantDetails.pa
-    });
+    if (request.sponsoredRequest) {
+      console.log('Processing EIP-7702 sponsored payment request:', {
+        chainId: request.chainId,
+        userAddress: request.sponsoredRequest.userAddress,
+        payee: request.upiMerchantDetails.pa,
+        callsCount: request.sponsoredRequest.calls.length
+      });
+    } else {
+      console.log('Processing legacy ERC-7702 payment request:', {
+        chainId: request.chainId,
+        sender: request.userOp?.sender,
+        payee: request.upiMerchantDetails.pa
+      });
+    }
 
     // Create payment orchestrator for the specified chain
     const orchestrator = new PaymentOrchestrator(request.chainId);

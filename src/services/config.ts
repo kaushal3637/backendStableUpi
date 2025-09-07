@@ -12,9 +12,8 @@ export class ConfigService {
   public readonly treasuryAddress: string;
   public readonly apiKey: string;
 
-  // ERC-7702 Configuration
-  public readonly entryPointAddress: string;
-  public readonly accountFactoryAddress: string;
+  // EIP-7702 Configuration
+  public readonly delegationContractAddress: string;
 
   // UPI Configuration
   public readonly upiConfig: UPIConfig;
@@ -32,9 +31,8 @@ export class ConfigService {
     this.treasuryAddress = this.getRequiredEnv('TREASURY_ADDRESS');
     this.apiKey = this.getRequiredEnv('API_KEY');
 
-    // ERC-7702
-    this.entryPointAddress = process.env.ENTRYPOINT_ADDRESS || '0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789';
-    this.accountFactoryAddress = process.env.ACCOUNT_FACTORY_ADDRESS || '';
+    // EIP-7702
+    this.delegationContractAddress = this.getRequiredEnv('DELEGATION_CONTRACT_ADDRESS');
 
     // UPI Configuration
     this.upiConfig = {
@@ -50,28 +48,24 @@ export class ConfigService {
         rpcUrl: process.env.ETHEREUM_RPC_URL || 'https://1rpc.io/eth',
         chainId: 1,
         usdcContractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-        entryPointAddress: this.entryPointAddress,
       },
       // Arbitrum One
       42161: {
         rpcUrl: process.env.ARBITRUM_RPC_URL || 'https://1rpc.io/arb',
         chainId: 42161,
         usdcContractAddress: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-        entryPointAddress: this.entryPointAddress,
       },
       // Sepolia Testnet
       11155111: {
         rpcUrl: process.env.SEPOLIA_RPC_URL || 'https://1rpc.io/sepolia',
         chainId: 11155111,
-        usdcContractAddress: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8',
-        entryPointAddress: this.entryPointAddress,
+        usdcContractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
       },
       // Arbitrum Sepolia
       421614: {
         rpcUrl: process.env.ARBITRUM_SEPOLIA_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
         chainId: 421614,
         usdcContractAddress: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
-        entryPointAddress: this.entryPointAddress,
       },
     };
   }

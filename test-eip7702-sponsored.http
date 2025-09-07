@@ -1,0 +1,97 @@
+# Test file for EIP-7702 Sponsored Transactions
+# Use this with REST Client extension or similar tools
+
+### Health Check
+GET http://localhost:3001/health
+
+### Process EIP-7702 Sponsored Payment (NEW - Recommended)
+POST http://localhost:3001/api/payments/process
+Content-Type: application/json
+X-API-Key: your_development_api_key_here
+
+{
+  "sponsoredRequest": {
+    "userAddress": "0x88826a677aDB340F0c7b8CCd6aF6aD96a40b0085",
+    "calls": [
+      {
+        "to": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc454e4438f44e0000000000000000000000000000000000000000000000000000000000095bf6"
+      }
+    ],
+    "authorization": {
+      "chainId": 421614,
+      "address": "0x1234567890123456789012345678901234567890",
+      "nonce": "0x0",
+      "yParity": 1,
+      "r": "0x99e0e3038c9a6ae5b181ac5670d1bac0f8a7be33aa52ae24eb21fdbbb5f3bbb12",
+      "s": "0xc69a9cdf8aa5dfe205375f36614c8283adbed466189d3f22a1882f14df776ac1b"
+    },
+    "upiMerchantDetails": {
+      "pa": "merchant@paytm",
+      "pn": "Test Merchant",
+      "am": "100.00",
+      "cu": "INR",
+      "mc": "1234",
+      "tr": "TXN123456"
+    },
+    "chainId": 421614
+  },
+  "upiMerchantDetails": {
+    "pa": "merchant@paytm",
+    "pn": "Test Merchant",
+    "am": "100.00",
+    "cu": "INR",
+    "mc": "1234",
+    "tr": "TXN123456"
+  },
+  "chainId": 421614
+}
+
+### Check Payment Status
+GET http://localhost:3001/api/payments/status/0x123456789012345678901234567890123456789012345678901234567890
+
+### Example: Multi-call Sponsored Transaction
+POST http://localhost:3001/api/payments/process
+Content-Type: application/json
+X-API-Key: your_development_api_key_here
+
+{
+  "sponsoredRequest": {
+    "userAddress": "0x88826a677aDB340F0c7b8CCd6aF6aD96a40b0085",
+    "calls": [
+      {
+        "to": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+        "value": "0",
+        "data": "0xa9059cbb000000000000000000000000742d35cc6634c0532925a3b844bc454e4438f44e0000000000000000000000000000000000000000000000000000000000095bf6"
+      },
+      {
+        "to": "0x0000000000000000000000000000000000000000",
+        "value": "1000000000000000",
+        "data": "0x"
+      }
+    ],
+    "authorization": {
+      "chainId": 421614,
+      "address": "0x1234567890123456789012345678901234567890",
+      "nonce": "0x0",
+      "yParity": 1,
+      "r": "0x99e0e3038c9a6ae5b181ac5670d1bac0f8a7be33aa52ae24eb21fdbbb5f3bbb12",
+      "s": "0xc69a9cdf8aa5dfe205375f36614c8283adbed466189d3f22a1882f14df776ac1b"
+    },
+    "upiMerchantDetails": {
+      "pa": "merchant@paytm",
+      "pn": "Test Merchant",
+      "am": "100.00",
+      "cu": "INR"
+    },
+    "chainId": 421614
+  },
+  "upiMerchantDetails": {
+    "pa": "merchant@paytm",
+    "pn": "Test Merchant",
+    "am": "100.00",
+    "cu": "INR"
+  },
+  "chainId": 421614
+}

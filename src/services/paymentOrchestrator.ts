@@ -1,76 +1,106 @@
-import { ERC7702Request, ERC7702Response, UPIMerchantDetails } from '../types';
+import { ERC7702Request, ERC7702Response, UPIMerchantDetails, EIP7702SponsoredRequest } from '../types';
 import { UserOpService } from './userOpService';
 import { USDCService } from './usdcService';
 import { UPIService } from './upiService';
+import { EIP7702Service } from './eip7702Service';
 import { config } from './config';
 
 export class PaymentOrchestrator {
   private userOpService: UserOpService;
   private usdcService: USDCService;
   private upiService: UPIService;
+  private eip7702Service: EIP7702Service;
 
   constructor(chainId: number) {
     this.userOpService = new UserOpService(chainId);
     this.usdcService = new USDCService(chainId);
     this.upiService = new UPIService();
+    this.eip7702Service = new EIP7702Service(chainId);
   }
 
   /**
    * Processes the complete payment flow:
-   * 1. Execute ERC-7702 UserOp
-   * 2. Transfer USDC to treasury
+   * 1. Execute EIP-7702 sponsored transaction OR legacy UserOp
+   * 2. Transfer USDC to treasury (if applicable)
    * 3. Initiate UPI payment
    */
   public async processPayment(request: ERC7702Request): Promise<ERC7702Response> {
     try {
       console.log('Starting payment orchestration process...');
 
-      // Step 1: Process ERC-7702 UserOp
-      console.log('Step 1: Processing ERC-7702 UserOp...');
-      const userOpResult = await this.userOpService.processERC7702Request(request);
+      let transactionHash: string;
 
-      if (!userOpResult.success) {
+      // Determine transaction type and process accordingly
+      if (request.sponsoredRequest) {
+        // Process EIP-7702 sponsored transaction
+        console.log('Step 1: Processing EIP-7702 sponsored transaction...');
+        const sponsoredResult = await this.eip7702Service.sendSponsoredTransaction(request.sponsoredRequest);
+
+        if (!sponsoredResult.success) {
+          return {
+            success: false,
+            status: 'failed',
+            error: `EIP-7702 sponsored transaction failed: ${sponsoredResult.error}`
+          };
+        }
+
+        transactionHash = sponsoredResult.transactionHash!;
+        console.log(`EIP-7702 sponsored transaction successful. Transaction hash: ${transactionHash}`);
+
+      } else if (request.userOp) {
+        // Process legacy UserOp
+        console.log('Step 1: Processing legacy ERC-7702 UserOp...');
+        const userOpResult = await this.userOpService.processERC7702Request(request);
+
+        if (!userOpResult.success) {
+          return {
+            success: false,
+            status: 'failed',
+            error: `UserOp execution failed: ${userOpResult.error}`
+          };
+        }
+
+        transactionHash = userOpResult.transactionHash!;
+        console.log(`UserOp executed successfully. Transaction hash: ${transactionHash}`);
+
+        // For legacy UserOps, still need USDC transfer
+        console.log('Step 2: Transferring USDC to treasury...');
+        const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
+
+        const usdcTransferResult = await this.usdcService.transferToTreasury({
+          from: request.userOp.sender,
+          to: config.treasuryAddress,
+          amount: usdcAmount,
+          chainId: request.chainId
+        });
+
+        if (!usdcTransferResult.success) {
+          return {
+            success: false,
+            status: 'failed',
+            error: `USDC transfer failed: ${usdcTransferResult.error}`,
+            transactionHash
+          };
+        }
+
+        console.log(`USDC transfer completed. Transaction hash: ${usdcTransferResult.transactionHash}`);
+      } else {
         return {
           success: false,
           status: 'failed',
-          error: `UserOp execution failed: ${userOpResult.error}`
+          error: 'Neither sponsored request nor userOp provided'
         };
       }
-
-      console.log(`UserOp executed successfully. Transaction hash: ${userOpResult.transactionHash}`);
-
-      // Step 2: Transfer USDC to treasury
-      console.log('Step 2: Transferring USDC to treasury...');
-
-      // Extract the amount from UPI merchant details or UserOp
-      const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
-
-      const usdcTransferResult = await this.usdcService.transferToTreasury({
-        from: request.userOp.sender,
-        to: config.treasuryAddress,
-        amount: usdcAmount,
-        chainId: request.chainId
-      });
-
-      if (!usdcTransferResult.success) {
-        return {
-          success: false,
-          status: 'failed',
-          error: `USDC transfer failed: ${usdcTransferResult.error}`,
-          transactionHash: userOpResult.transactionHash
-        };
-      }
-
-      console.log(`USDC transfer completed. Transaction hash: ${usdcTransferResult.transactionHash}`);
 
       // Step 3: Initiate UPI payment
       console.log('Step 3: Initiating UPI payment...');
 
+      const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
       const upiPaymentResult = await this.upiService.initiatePayment({
         merchantDetails: request.upiMerchantDetails,
         amount: this.convertUSDCToINR(usdcAmount),
         currency: 'INR',
-        transactionId: userOpResult.transactionHash || `tx_${Date.now()}`
+        transactionId: transactionHash || `tx_${Date.now()}`
       });
 
       if (!upiPaymentResult.success) {
@@ -78,7 +108,7 @@ export class PaymentOrchestrator {
           success: false,
           status: 'failed',
           error: `UPI payment initiation failed: ${upiPaymentResult.error}`,
-          transactionHash: userOpResult.transactionHash
+          transactionHash
         };
       }
 
@@ -86,7 +116,7 @@ export class PaymentOrchestrator {
 
       return {
         success: true,
-        transactionHash: userOpResult.transactionHash,
+        transactionHash,
         upiPaymentId: upiPaymentResult.paymentId,
         status: 'completed'
       };
