@@ -27,7 +27,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestLogger);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (req: express.Request, res: express.Response) => {
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -36,7 +36,7 @@ app.get('/health', (req, res) => {
 });
 
 // IP address endpoint
-app.get('/ip', (req, res) => {
+app.get('/ip', (req: express.Request, res: express.Response) => {
   try {
     // Get client IP address
     const clientIP = req.ip || 
@@ -71,7 +71,7 @@ app.get('/ip', (req, res) => {
 app.use('/api/payments', paymentRoutes);
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use('*', (req: express.Request, res: express.Response) => {
   res.status(404).json({
     success: false,
     error: 'Endpoint not found'
