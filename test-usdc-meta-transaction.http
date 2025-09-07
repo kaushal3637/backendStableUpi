@@ -1,0 +1,83 @@
+### Test USDC Meta Transaction Flow
+
+# Step 1: Prepare USDC Meta Transaction
+POST http://localhost:3001/api/payments/prepare-meta-transaction
+Content-Type: application/json
+X-API-Key: your-api-key-here
+
+{
+  "from": "0x1234567890123456789012345678901234567890",
+  "to": "0x0987654321098765432109876543210987654321",
+  "value": "10.5",
+  "chainId": 421614
+}
+
+###
+
+# Step 2: Process USDC Meta Transaction Payment
+POST http://localhost:3001/api/payments/process
+Content-Type: application/json
+X-API-Key: your-api-key-here
+
+{
+  "metaTransactionRequest": {
+    "from": "0x1234567890123456789012345678901234567890",
+    "to": "0x0987654321098765432109876543210987654321",
+    "value": "10.5",
+    "validAfter": 1234567890,
+    "validBefore": 1234571490,
+    "nonce": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "signature": {
+      "v": 27,
+      "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+    },
+    "chainId": 421614
+  },
+  "upiMerchantDetails": {
+    "pa": "merchant@upi",
+    "pn": "Merchant Name",
+    "am": "871.50",
+    "cu": "INR",
+    "mc": "1234",
+    "tr": "TXN123456"
+  },
+  "chainId": 421614
+}
+
+###
+
+# Step 3: Check Payment Status
+GET http://localhost:3001/api/payments/status/0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+
+###
+
+# Legacy: ERC-7702 UserOp (deprecated)
+POST http://localhost:3001/api/payments/process
+Content-Type: application/json
+X-API-Key: your-api-key-here
+
+{
+  "userOp": {
+    "sender": "0x1234567890123456789012345678901234567890",
+    "nonce": "0x1",
+    "initCode": "0x",
+    "callData": "0xa9059cbb000000000000000000000000987654321098765432109876543210987654321000000000000000000000000000000000000000000000000000000000009f93020",
+    "callGasLimit": "0x186a0",
+    "verificationGasLimit": "0x186a0",
+    "preVerificationGas": "0x5208",
+    "maxFeePerGas": "0x5f5e100",
+    "maxPriorityFeePerGas": "0x5f5e100",
+    "paymasterAndData": "0x",
+    "signature": "0x1234567890abcdef"
+  },
+  "upiMerchantDetails": {
+    "pa": "merchant@upi",
+    "pn": "Merchant Name",
+    "am": "100.00",
+    "cu": "INR",
+    "mc": "1234",
+    "tr": "TXN123456"
+  },
+  "chainId": 421614
+}

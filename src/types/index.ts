@@ -39,9 +39,54 @@ export interface UserOperation {
   signature: string;
 }
 
+// USDC Meta Transaction types
+export interface USDCMetaTransactionSignature {
+  v: number;
+  r: string;
+  s: string;
+}
+
+export interface USDCMetaTransactionRequest {
+  from: string;
+  to: string;
+  value: string; // Amount in USDC (decimal format)
+  validAfter: number; // timestamp
+  validBefore: number; // timestamp
+  nonce: string; // hex string
+  signature: USDCMetaTransactionSignature;
+  chainId: number;
+}
+
+export interface USDCMetaTransactionResponse {
+  success: boolean;
+  transactionHash?: string;
+  error?: string;
+}
+
+export interface PrepareMetaTransactionRequest {
+  from: string;
+  to: string;
+  value: string;
+  validAfter?: number;
+  validBefore?: number;
+  chainId: number;
+}
+
+export interface PrepareMetaTransactionResponse {
+  nonce: string;
+  typedData: {
+    domain: any;
+    types: any;
+    message: any;
+  };
+  validAfter: number;
+  validBefore: number;
+}
+
 export interface ERC7702Request {
-  userOp?: UserOperation; // Optional for legacy support
-  sponsoredRequest?: EIP7702SponsoredRequest; // New sponsored transaction
+  userOp?: UserOperation; // Optional for legacy support (deprecated)
+  sponsoredRequest?: EIP7702SponsoredRequest; // EIP-7702 sponsored transaction (deprecated)
+  metaTransactionRequest?: USDCMetaTransactionRequest; // New USDC meta transaction
   upiMerchantDetails: UPIMerchantDetails;
   chainId: number;
 }
@@ -49,7 +94,6 @@ export interface ERC7702Request {
 export interface ERC7702Response {
   success: boolean;
   transactionHash?: string;
-  upiPaymentId?: string;
   error?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
 }

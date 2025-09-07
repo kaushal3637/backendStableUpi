@@ -41,29 +41,32 @@ export class ConfigService {
       merchantId: process.env.UPI_MERCHANT_ID || '',
     };
 
+    // Get RPC API key (try multiple environment variable names for compatibility)
+    const rpcApiKey = process.env.RPC_API_KEY || process.env.ALCHEMY_API_KEY || this.getRequiredEnv('ALCHEMY_API_KEY');
+
     // Blockchain Configurations
     this.blockchainConfigs = {
       // Ethereum Mainnet
       1: {
-        rpcUrl: process.env.ETHEREUM_RPC_URL || 'https://1rpc.io/eth',
+        rpcUrl: process.env.ETHEREUM_RPC_URL || `https://eth-mainnet.g.alchemy.com/v2/${rpcApiKey}`,
         chainId: 1,
         usdcContractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
       },
       // Arbitrum One
       42161: {
-        rpcUrl: process.env.ARBITRUM_RPC_URL || 'https://1rpc.io/arb',
+        rpcUrl: process.env.ARBITRUM_RPC_URL || `https://arb-mainnet.g.alchemy.com/v2/${rpcApiKey}`,
         chainId: 42161,
         usdcContractAddress: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
       },
       // Sepolia Testnet
       11155111: {
-        rpcUrl: process.env.SEPOLIA_RPC_URL || 'https://1rpc.io/sepolia',
+        rpcUrl: process.env.SEPOLIA_RPC_URL || `https://eth-sepolia.g.alchemy.com/v2/${rpcApiKey}`,
         chainId: 11155111,
-        usdcContractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+        usdcContractAddress: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8',
       },
       // Arbitrum Sepolia
       421614: {
-        rpcUrl: process.env.ARBITRUM_SEPOLIA_RPC_URL || 'https://sepolia-rollup.arbitrum.io/rpc',
+        rpcUrl: process.env.ARBITRUM_SEPOLIA_RPC_URL || `https://arb-sepolia.g.alchemy.com/v2/${rpcApiKey}`,
         chainId: 421614,
         usdcContractAddress: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
       },

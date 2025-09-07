@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import Joi from 'joi';
-import { ERC7702Request, APIResponse, EIP7702SponsoredRequest } from '../types';
+import { ERC7702Request, APIResponse, EIP7702SponsoredRequest, USDCMetaTransactionRequest, PrepareMetaTransactionRequest } from '../types';
 import { PaymentOrchestrator } from '../services/paymentOrchestrator';
+import { USDCMetaTransactionService } from '../services/usdcMetaTransactionService';
 import { config } from '../services/config';
 
 const router = Router();
@@ -56,17 +57,99 @@ const sponsoredRequestSchema = Joi.object({
   chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
 });
 
-// Updated main request schema (supports both legacy and sponsored)
+// USDC Meta Transaction schema
+const usdcMetaTransactionSignatureSchema = Joi.object({
+  v: Joi.number().valid(27, 28).required(),
+  r: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+  s: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+});
+
+const usdcMetaTransactionRequestSchema = Joi.object({
+  from: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  to: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  value: Joi.string().required(),
+  validAfter: Joi.number().required(),
+  validBefore: Joi.number().required(),
+  nonce: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+  signature: usdcMetaTransactionSignatureSchema.required(),
+  chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
+});
+
+const prepareMetaTransactionRequestSchema = Joi.object({
+  from: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  to: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  value: Joi.string().required(),
+  validAfter: Joi.number().optional(),
+  validBefore: Joi.number().optional(),
+  chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
+});
+
+// Updated main request schema (supports legacy, sponsored, and meta transactions)
 const erc7702RequestSchema = Joi.object({
   userOp: userOpSchema.optional(),
   sponsoredRequest: sponsoredRequestSchema.optional(),
+  metaTransactionRequest: usdcMetaTransactionRequestSchema.optional(),
   upiMerchantDetails: upiMerchantSchema.required(),
   chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
-}).xor('userOp', 'sponsoredRequest'); // Must have either userOp OR sponsoredRequest
+}).xor('userOp', 'sponsoredRequest', 'metaTransactionRequest'); // Must have exactly one of the three
+
+/**
+ * POST /api/payments/prepare-meta-transaction
+ * Prepares a USDC meta transaction for signing
+ */
+router.post('/prepare-meta-transaction', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== config.apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    // Validate request body
+    const { error, value } = prepareMetaTransactionRequestSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        error: `Validation error: ${error.details[0].message}`
+      } as APIResponse);
+    }
+
+    const request: PrepareMetaTransactionRequest = value;
+
+    console.log('Preparing USDC meta transaction:', {
+      from: request.from,
+      to: request.to,
+      value: request.value,
+      chainId: request.chainId
+    });
+
+    // Create meta transaction service for the specified chain
+    const metaTransactionService = new USDCMetaTransactionService(request.chainId);
+
+    // Prepare the meta transaction
+    const result = await metaTransactionService.prepareMetaTransaction(request);
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Meta transaction prepared successfully'
+    } as APIResponse);
+
+  } catch (error) {
+    console.error('Meta transaction preparation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during meta transaction preparation'
+    } as APIResponse);
+  }
+});
 
 /**
  * POST /api/payments/process
- * Processes ERC-7702 UserOp and initiates UPI payment
+ * Processes USDC meta transaction, ERC-7702 UserOp and initiates UPI payment
  */
 router.post('/process', async (req: Request, res: Response) => {
   try {
@@ -90,15 +173,23 @@ router.post('/process', async (req: Request, res: Response) => {
 
     const request: ERC7702Request = value;
 
-    if (request.sponsoredRequest) {
-      console.log('Processing EIP-7702 sponsored payment request:', {
+    if (request.metaTransactionRequest) {
+      console.log('Processing USDC meta transaction payment request:', {
+        chainId: request.chainId,
+        from: request.metaTransactionRequest.from,
+        to: request.metaTransactionRequest.to,
+        value: request.metaTransactionRequest.value,
+        payee: request.upiMerchantDetails.pa
+      });
+    } else if (request.sponsoredRequest) {
+      console.log('Processing EIP-7702 sponsored payment request (deprecated):', {
         chainId: request.chainId,
         userAddress: request.sponsoredRequest.userAddress,
         payee: request.upiMerchantDetails.pa,
         callsCount: request.sponsoredRequest.calls.length
       });
     } else {
-      console.log('Processing legacy ERC-7702 payment request:', {
+      console.log('Processing legacy ERC-7702 payment request (deprecated):', {
         chainId: request.chainId,
         sender: request.userOp?.sender,
         payee: request.upiMerchantDetails.pa

@@ -112,6 +112,77 @@ export class USDCService {
   }
 
   /**
+   * Verifies if a USDC transfer occurred by checking transaction logs
+   */
+  public async verifyTransferInTransaction(txHash: string, from: string, to: string, expectedAmount: string): Promise<{
+    verified: boolean;
+    actualAmount?: string;
+    error?: string;
+  }> {
+    try {
+      const receipt = await this.provider.getTransactionReceipt(txHash);
+      if (!receipt) {
+        return { verified: false, error: 'Transaction receipt not found' };
+      }
+
+      // USDC Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
+      const transferEventSignature = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+      
+      // Look for Transfer events from USDC contract
+      const usdcContractAddress = await this.usdcContract.getAddress();
+      const transferLogs = receipt.logs.filter(log => 
+        log.address.toLowerCase() === usdcContractAddress.toLowerCase() &&
+        log.topics[0] === transferEventSignature &&
+        log.topics[1] === ethers.zeroPadValue(from.toLowerCase(), 32) &&
+        log.topics[2] === ethers.zeroPadValue(to.toLowerCase(), 32)
+      );
+
+      if (transferLogs.length === 0) {
+        console.log('DEBUG: Transaction receipt analysis:');
+        console.log('  Total logs:', receipt.logs.length);
+        console.log('  USDC contract address:', usdcContractAddress);
+        console.log('  Looking for Transfer events from:', from, 'to:', to);
+        
+        // Check if there are any logs at all from the USDC contract
+        const usdcLogs = receipt.logs.filter(log => 
+          log.address.toLowerCase() === usdcContractAddress.toLowerCase()
+        );
+        console.log('  USDC contract logs:', usdcLogs.length);
+        
+        // Check for any Transfer events (regardless of from/to)
+        const anyTransferLogs = receipt.logs.filter(log => 
+          log.address.toLowerCase() === usdcContractAddress.toLowerCase() &&
+          log.topics[0] === transferEventSignature
+        );
+        console.log('  Any USDC Transfer events:', anyTransferLogs.length);
+        
+        return { verified: false, error: 'No USDC transfer events found in transaction' };
+      }
+
+      // Decode the transfer amount from the first matching log
+      const transferLog = transferLogs[0];
+      const actualAmount = ethers.formatUnits(transferLog.data, 6);
+      const expectedAmountFormatted = parseFloat(expectedAmount);
+      const actualAmountFormatted = parseFloat(actualAmount);
+
+      const verified = Math.abs(expectedAmountFormatted - actualAmountFormatted) < 0.000001; // Allow for minor precision differences
+
+      return {
+        verified,
+        actualAmount,
+        error: verified ? undefined : `Amount mismatch: expected ${expectedAmount}, got ${actualAmount}`
+      };
+
+    } catch (error) {
+      console.error('Error verifying USDC transfer:', error);
+      return {
+        verified: false,
+        error: error instanceof Error ? error.message : 'Unknown verification error'
+      };
+    }
+  }
+
+  /**
    * Transfers USDC from one address to treasury (if approved)
    */
   public async transferFrom(from: string, to: string, amount: string): Promise<USDCTansferResponse> {

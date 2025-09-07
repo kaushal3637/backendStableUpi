@@ -1,28 +1,28 @@
-import { ERC7702Request, ERC7702Response, UPIMerchantDetails, EIP7702SponsoredRequest } from '../types';
+import { ERC7702Request, ERC7702Response, UPIMerchantDetails, EIP7702SponsoredRequest, USDCMetaTransactionRequest } from '../types';
 import { UserOpService } from './userOpService';
 import { USDCService } from './usdcService';
-import { UPIService } from './upiService';
 import { EIP7702Service } from './eip7702Service';
+import { USDCMetaTransactionService } from './usdcMetaTransactionService';
 import { config } from './config';
 
 export class PaymentOrchestrator {
   private userOpService: UserOpService;
   private usdcService: USDCService;
-  private upiService: UPIService;
   private eip7702Service: EIP7702Service;
+  private usdcMetaTransactionService: USDCMetaTransactionService;
 
   constructor(chainId: number) {
     this.userOpService = new UserOpService(chainId);
     this.usdcService = new USDCService(chainId);
-    this.upiService = new UPIService();
     this.eip7702Service = new EIP7702Service(chainId);
+    this.usdcMetaTransactionService = new USDCMetaTransactionService(chainId);
   }
 
   /**
    * Processes the complete payment flow:
-   * 1. Execute EIP-7702 sponsored transaction OR legacy UserOp
+   * 1. Execute USDC meta transaction OR EIP-7702 sponsored transaction OR legacy UserOp
    * 2. Transfer USDC to treasury (if applicable)
-   * 3. Initiate UPI payment
+   * 3. Return success response
    */
   public async processPayment(request: ERC7702Request): Promise<ERC7702Response> {
     try {
@@ -31,7 +31,59 @@ export class PaymentOrchestrator {
       let transactionHash: string;
 
       // Determine transaction type and process accordingly
-      if (request.sponsoredRequest) {
+      if (request.metaTransactionRequest) {
+        // Process USDC meta transaction (preferred method)
+        console.log('Step 1: Processing USDC meta transaction...');
+        const metaTransactionResult = await this.usdcMetaTransactionService.executeMetaTransaction(request.metaTransactionRequest);
+
+        if (!metaTransactionResult.success) {
+          return {
+            success: false,
+            status: 'failed',
+            error: `USDC meta transaction failed: ${metaTransactionResult.error}`
+          };
+        }
+
+        transactionHash = metaTransactionResult.transactionHash!;
+        console.log(`USDC meta transaction successful. Transaction hash: ${transactionHash}`);
+
+        // Step 1.5: Verify USDC transfer occurred
+        console.log('Step 1.5: Verifying USDC transfer occurred...');
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for transaction to be indexed
+        
+        const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
+        
+        try {
+          // Verify USDC transfer by checking transaction logs
+          const verificationResult = await this.usdcMetaTransactionService.verifyMetaTransaction(
+            transactionHash,
+            request.metaTransactionRequest.from,
+            request.metaTransactionRequest.to,
+            usdcAmount
+          );
+
+          if (verificationResult.verified) {
+            console.log(`✅ USDC meta transaction verified: ${verificationResult.actualAmount} USDC transferred to treasury`);
+          } else {
+            console.warn(`❌ USDC meta transaction verification failed: ${verificationResult.error}`);
+            return {
+              success: false,
+              status: 'failed',
+              error: `USDC meta transaction verification failed: ${verificationResult.error}`,
+              transactionHash
+            };
+          }
+        } catch (verificationError) {
+          console.warn('USDC meta transaction verification failed:', verificationError);
+          return {
+            success: false,
+            status: 'failed',
+            error: 'USDC meta transaction verification failed',
+            transactionHash
+          };
+        }
+
+      } else if (request.sponsoredRequest) {
         // Process EIP-7702 sponsored transaction
         console.log('Step 1: Processing EIP-7702 sponsored transaction...');
         const sponsoredResult = await this.eip7702Service.sendSponsoredTransaction(request.sponsoredRequest);
@@ -46,6 +98,34 @@ export class PaymentOrchestrator {
 
         transactionHash = sponsoredResult.transactionHash!;
         console.log(`EIP-7702 sponsored transaction successful. Transaction hash: ${transactionHash}`);
+
+        // Step 1.5: Verify USDC transfer occurred (since delegation contract might not revert on failure)
+        console.log('Step 1.5: Verifying USDC transfer occurred...');
+        await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for transaction to be indexed
+        
+        const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
+        const expectedTransferAmount = parseFloat(usdcAmount) * 1000000; // Convert to USDC decimals
+        
+        try {
+          // Verify USDC transfer by checking transaction logs
+          const verificationResult = await this.usdcService.verifyTransferInTransaction(
+            transactionHash,
+            request.sponsoredRequest.userAddress,
+            config.treasuryAddress,
+            usdcAmount
+          );
+
+          if (verificationResult.verified) {
+            console.log(`✅ USDC transfer verified: ${verificationResult.actualAmount} USDC transferred to treasury`);
+          } else {
+            console.warn(`❌ USDC transfer verification failed: ${verificationResult.error}`);
+            console.warn('The delegation contract executed but the USDC transfer may have failed silently.');
+            // TODO: Consider implementing fallback transfer or alerting mechanisms
+          }
+        } catch (verificationError) {
+          console.warn('USDC transfer verification failed:', verificationError);
+          // Don't fail the entire flow for verification issues
+        }
 
       } else if (request.userOp) {
         // Process legacy UserOp
@@ -88,36 +168,16 @@ export class PaymentOrchestrator {
         return {
           success: false,
           status: 'failed',
-          error: 'Neither sponsored request nor userOp provided'
+          error: 'No valid transaction request provided (metaTransactionRequest, sponsoredRequest, or userOp required)'
         };
       }
 
-      // Step 3: Initiate UPI payment
-      console.log('Step 3: Initiating UPI payment...');
-
-      const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
-      const upiPaymentResult = await this.upiService.initiatePayment({
-        merchantDetails: request.upiMerchantDetails,
-        amount: this.convertUSDCToINR(usdcAmount),
-        currency: 'INR',
-        transactionId: transactionHash || `tx_${Date.now()}`
-      });
-
-      if (!upiPaymentResult.success) {
-        return {
-          success: false,
-          status: 'failed',
-          error: `UPI payment initiation failed: ${upiPaymentResult.error}`,
-          transactionHash
-        };
-      }
-
-      console.log(`UPI payment initiated successfully. Payment ID: ${upiPaymentResult.paymentId}`);
+      // Return success response after USDC transfer verification
+      console.log('USDC transfer completed successfully');
 
       return {
         success: true,
         transactionHash,
-        upiPaymentId: upiPaymentResult.paymentId,
         status: 'completed'
       };
 
@@ -150,30 +210,18 @@ export class PaymentOrchestrator {
   }
 
   /**
-   * Converts USDC amount back to INR for UPI payment
-   */
-  private convertUSDCToINR(usdcAmount: string): string {
-    const amount = parseFloat(usdcAmount);
-    // Using approximate conversion rate (1 USDC ≈ 83 INR)
-    const inrAmount = amount * 83;
-    return inrAmount.toFixed(2);
-  }
-
-  /**
    * Gets the status of a payment by transaction hash
    */
   public async getPaymentStatus(transactionHash: string): Promise<{
-    userOpStatus: string;
+    transactionStatus: string;
     usdcTransferStatus: string;
-    upiPaymentStatus: string;
   }> {
     try {
       // In a real implementation, you'd store payment state in a database
       // For now, return mock status
       return {
-        userOpStatus: 'completed',
-        usdcTransferStatus: 'completed',
-        upiPaymentStatus: 'initiated'
+        transactionStatus: 'completed',
+        usdcTransferStatus: 'completed'
       };
     } catch (error) {
       console.error('Failed to get payment status:', error);

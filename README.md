@@ -1,26 +1,35 @@
-# Backend StableUPI - ERC-7702 UserOp Processor
+# Backend StableUPI - USDC Meta Transaction Processor
 
-A backend service that processes ERC-7702 UserOperations and facilitates USDC transfers with UPI payment integration.
+A backend service that processes USDC meta transactions using transferWithAuthorization and facilitates gasless USDC transfers to treasury.
 
 ## Features
 
-- **ERC-7702 UserOp Processing**: Validates and executes UserOperations on various blockchain networks
-- **USDC Transfers**: Securely transfers USDC tokens to treasury after UserOp execution
-- **UPI Integration**: Initiates UPI payments after successful USDC transfers
+- **USDC Meta Transactions**: Gasless USDC transfers using EIP-3009 transferWithAuthorization
+- **Legacy Support**: Backward compatibility with ERC-7702 UserOperations and EIP-7702 sponsored transactions
 - **Multi-Chain Support**: Supports Ethereum, Arbitrum, Sepolia, and Arbitrum Sepolia
 - **Security**: API key authentication, rate limiting, and comprehensive error handling
 
 ## Architecture
 
 ```
-Frontend (7702 UserOp + UPI Details) → Backend → Blockchain → Treasury → UPI Payment
+Frontend (USDC Meta Transaction) → Backend → Blockchain → Treasury
 ```
+
+## How USDC Meta Transactions Work
+
+1. **Prepare Transaction**: Backend generates typed data for the meta transaction
+2. **User Signs**: Frontend user signs the EIP-712 structured data
+3. **Relayer Executes**: Backend submits the transaction on behalf of the user
+4. **Gasless Transfer**: User doesn't need ETH for gas fees
+5. **Treasury Receives**: USDC is transferred directly to treasury address
+
+This uses USDC's built-in `transferWithAuthorization` function (EIP-3009) instead of complex account abstraction.
 
 ## API Endpoints
 
-### POST /api/payments/process
+### POST /api/payments/prepare-meta-transaction
 
-Processes an ERC-7702 UserOp and initiates the complete payment flow.
+Prepares a USDC meta transaction for signing by generating the required typed data.
 
 **Headers:**
 ```
@@ -29,6 +38,72 @@ X-API-Key: your_api_key
 ```
 
 **Request Body:**
+```json
+{
+  "from": "0x1234567890123456789012345678901234567890",
+  "to": "0x0987654321098765432109876543210987654321",
+  "value": "10.5",
+  "chainId": 421614
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "nonce": "0x...",
+    "typedData": {
+      "domain": { ... },
+      "types": { ... },
+      "message": { ... }
+    },
+    "validAfter": 1234567890,
+    "validBefore": 1234571490
+  }
+}
+```
+
+### POST /api/payments/process
+
+Processes a USDC meta transaction and initiates the complete payment flow.
+
+**Headers:**
+```
+Content-Type: application/json
+X-API-Key: your_api_key
+```
+
+**Request Body (USDC Meta Transaction):**
+```json
+{
+  "metaTransactionRequest": {
+    "from": "0x1234567890123456789012345678901234567890",
+    "to": "0x0987654321098765432109876543210987654321",
+    "value": "10.5",
+    "validAfter": 1234567890,
+    "validBefore": 1234571490,
+    "nonce": "0x...",
+    "signature": {
+      "v": 27,
+      "r": "0x...",
+      "s": "0x..."
+    },
+    "chainId": 421614
+  },
+  "upiMerchantDetails": {
+    "pa": "merchant@upi",
+    "pn": "Merchant Name",
+    "am": "871.50",
+    "cu": "INR",
+    "mc": "1234",
+    "tr": "TXN123456"
+  },
+  "chainId": 421614
+}
+```
+
+**Legacy Request Body (ERC-7702, deprecated):**
 ```json
 {
   "userOp": {
