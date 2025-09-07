@@ -173,6 +173,27 @@ Health check endpoint.
 }
 ```
 
+### GET /ip
+
+IP address endpoint that returns server and client IP information.
+
+**Response:**
+```json
+{
+  "success": true,
+  "server": {
+    "port": 3001,
+    "environment": "development",
+    "hostname": "localhost"
+  },
+  "client": {
+    "ip": "127.0.0.1",
+    "userAgent": "Mozilla/5.0..."
+  },
+  "timestamp": "2024-01-01T00:00:00.000Z"
+}
+```
+
 ## Environment Variables
 
 Create a `.env` file with the following variables:
