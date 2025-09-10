@@ -5,6 +5,7 @@ import { PaymentOrchestrator } from '../services/paymentOrchestrator';
 import { USDCMetaTransactionService } from '../services/usdcMetaTransactionService';
 import { CashfreeService } from '../services/cashfreeService';
 import { config } from '../services/config';
+import { getExplorerUrl } from '../utils/chains';
 
 const router = Router();
 
@@ -364,6 +365,43 @@ router.post('/process-payout', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Internal server error during payout processing'
+    } as APIResponse);
+  }
+});
+
+/**
+ * GET /api/payments/explorer/:chainId/:txHash
+ * Redirect to blockchain explorer for transaction
+ */
+router.get('/explorer/:chainId/:txHash', async (req: Request, res: Response) => {
+  try {
+    const { chainId, txHash } = req.params;
+
+    if (!chainId || !txHash) {
+      return res.status(400).json({
+        success: false,
+        error: 'Chain ID and transaction hash are required'
+      } as APIResponse);
+    }
+
+    const chainIdNum = parseInt(chainId, 10);
+    const explorerUrl = getExplorerUrl(chainIdNum, txHash);
+
+    if (explorerUrl === '#') {
+      return res.status(400).json({
+        success: false,
+        error: 'Unsupported chain ID'
+      } as APIResponse);
+    }
+
+    // Redirect to the explorer
+    res.redirect(302, explorerUrl);
+
+  } catch (error: any) {
+    console.error('Explorer redirect error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during explorer redirect'
     } as APIResponse);
   }
 });
