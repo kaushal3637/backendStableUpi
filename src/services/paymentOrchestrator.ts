@@ -3,6 +3,7 @@ import { UserOpService } from './userOpService';
 import { USDCService } from './usdcService';
 import { EIP7702Service } from './eip7702Service';
 import { USDCMetaTransactionService } from './usdcMetaTransactionService';
+import { CashfreeService, CashfreeTransferRequest } from './cashfreeService';
 import { config } from './config';
 
 export class PaymentOrchestrator {
@@ -10,19 +11,22 @@ export class PaymentOrchestrator {
   private usdcService: USDCService;
   private eip7702Service: EIP7702Service;
   private usdcMetaTransactionService: USDCMetaTransactionService;
+  private cashfreeService: CashfreeService;
 
   constructor(chainId: number) {
     this.userOpService = new UserOpService(chainId);
     this.usdcService = new USDCService(chainId);
     this.eip7702Service = new EIP7702Service(chainId);
     this.usdcMetaTransactionService = new USDCMetaTransactionService(chainId);
+    this.cashfreeService = new CashfreeService();
   }
 
   /**
    * Processes the complete payment flow:
    * 1. Execute USDC meta transaction OR EIP-7702 sponsored transaction OR legacy UserOp
    * 2. Transfer USDC to treasury (if applicable)
-   * 3. Return success response
+   * 3. Initiate INR payout to merchant via Cashfree
+   * 4. Return success response with complete transaction details
    */
   public async processPayment(request: ERC7702Request): Promise<ERC7702Response> {
     try {
@@ -50,9 +54,10 @@ export class PaymentOrchestrator {
         // Step 1.5: Verify USDC transfer occurred
         console.log('Step 1.5: Verifying USDC transfer occurred...');
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for transaction to be indexed
-        
-        const usdcAmount = this.extractUSDCAmount(request.upiMerchantDetails);
-        
+
+        // Use the actual amount from the meta transaction request instead of recalculating
+        const usdcAmount = request.metaTransactionRequest.value;
+
         try {
           // Verify USDC transfer by checking transaction logs
           const verificationResult = await this.usdcMetaTransactionService.verifyMetaTransaction(
@@ -172,14 +177,76 @@ export class PaymentOrchestrator {
         };
       }
 
-      // Return success response after USDC transfer verification
-      console.log('USDC transfer completed successfully');
+      // Step 3: Initiate INR payout to merchant via Cashfree
+      console.log('Step 3: Initiating INR payout to merchant...');
 
-      return {
+      let inrPayoutResult = null;
+      let payoutTransferId: string | undefined = undefined;
+
+      try {
+        // Extract INR amount from UPI merchant details
+        const inrAmount = parseFloat(request.upiMerchantDetails.am || '0');
+
+        if (inrAmount > 0) {
+          // Generate unique transfer ID
+          const transferId = `TXN_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+          // Create transfer request for Cashfree
+          const transferRequest: CashfreeTransferRequest = {
+            transferId,
+            transferAmount: inrAmount,
+            beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
+            beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
+            beneficiaryVpa: request.upiMerchantDetails.pa,
+            transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
+            fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
+          };
+
+          console.log('Initiating INR payout:', {
+            amount: inrAmount,
+            beneficiaryId: transferRequest.beneficiaryId,
+            merchantName: transferRequest.beneficiaryName
+          });
+
+          // Initiate the payout
+          inrPayoutResult = await this.cashfreeService.initiateTransfer(transferRequest);
+
+          if (inrPayoutResult.status === 'SUCCESS' || inrPayoutResult.status === 'RECEIVED') {
+            payoutTransferId = transferId;
+            console.log(`✅ INR payout initiated successfully. Transfer ID: ${transferId}`);
+          } else {
+            console.warn(`❌ INR payout failed: ${inrPayoutResult.message}`);
+          }
+        } else {
+          console.log('No INR amount specified, skipping payout');
+        }
+      } catch (payoutError) {
+        console.error('INR payout initiation failed:', payoutError);
+        // Don't fail the entire transaction for payout issues
+        console.warn('USDC transaction succeeded but INR payout failed - manual intervention may be required');
+      }
+
+      // Return success response with complete transaction details
+      console.log('Payment orchestration completed successfully');
+
+      const response: ERC7702Response = {
         success: true,
         transactionHash,
-        status: 'completed'
+        status: 'completed',
+        upiPaymentId: payoutTransferId,
+        upiPaymentStatus: inrPayoutResult?.status || 'not_initiated'
       };
+
+      if (inrPayoutResult && payoutTransferId) {
+        response.upiPayoutDetails = {
+          transferId: payoutTransferId,
+          status: inrPayoutResult.status,
+          message: inrPayoutResult.message,
+          amount: parseFloat(request.upiMerchantDetails.am || '0')
+        };
+      }
+
+      return response;
 
     } catch (error) {
       console.error('Payment orchestration failed:', error);
@@ -207,6 +274,112 @@ export class PaymentOrchestrator {
     // Fallback: extract from UserOp callData (this would need custom logic based on your contract)
     // For now, return a default amount
     return '10.0'; // Default 10 USDC
+  }
+
+  /**
+   * Extracts beneficiary ID from UPI merchant details
+   * For now, we'll use a simple mapping - in production you'd have a database lookup
+   */
+  private extractBeneficiaryId(upiDetails: UPIMerchantDetails): string {
+    // For demo purposes, use a hardcoded mapping for test UPI IDs
+    // In production, you'd query your database to find the beneficiary ID for the UPI ID
+
+    const upiId = upiDetails.pa;
+
+    // Test beneficiary mappings
+    const testMappings: { [key: string]: string } = {
+      'success@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
+      'merchant@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
+      'testuser@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
+    };
+
+    // Return mapped beneficiary ID or generate one based on UPI ID
+    return testMappings[upiId] || `bene_${upiId.replace('@', '_').replace(/[^a-zA-Z0-9_]/g, '')}`;
+  }
+
+  /**
+   * Processes only the INR payout after USDC transaction is already completed
+   */
+  public async processINRPayoutOnly(request: ERC7702Request, transactionHash: string): Promise<ERC7702Response> {
+    try {
+      console.log('Processing INR payout only for transaction:', transactionHash);
+
+      let inrPayoutResult = null;
+      let payoutTransferId: string | undefined = undefined;
+
+      try {
+        // Extract INR amount from UPI merchant details
+        const inrAmount = parseFloat(request.upiMerchantDetails.am || '0');
+
+        if (inrAmount > 0) {
+          // Generate unique transfer ID
+          const transferId = `TXN_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+          // Create transfer request for Cashfree
+          const transferRequest: CashfreeTransferRequest = {
+            transferId,
+            transferAmount: inrAmount,
+            beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
+            beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
+            beneficiaryVpa: request.upiMerchantDetails.pa,
+            transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
+            fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
+          };
+
+          console.log('Initiating INR payout:', {
+            amount: inrAmount,
+            beneficiaryId: transferRequest.beneficiaryId,
+            merchantName: transferRequest.beneficiaryName
+          });
+
+          // Initiate the payout
+          inrPayoutResult = await this.cashfreeService.initiateTransfer(transferRequest);
+
+          if (inrPayoutResult.status === 'SUCCESS' || inrPayoutResult.status === 'RECEIVED') {
+            payoutTransferId = transferId;
+            console.log(`✅ INR payout initiated successfully. Transfer ID: ${transferId}`);
+          } else {
+            console.warn(`❌ INR payout failed: ${inrPayoutResult.message}`);
+          }
+        } else {
+          console.log('No INR amount specified, skipping payout');
+        }
+      } catch (payoutError) {
+        console.error('INR payout initiation failed:', payoutError);
+        // Don't fail the entire transaction for payout issues
+        console.warn('USDC transaction was successful but INR payout failed');
+      }
+
+      // Return success response with payout details
+      console.log('INR payout processing completed');
+
+      const response: ERC7702Response = {
+        success: true,
+        transactionHash,
+        status: 'completed',
+        upiPaymentId: payoutTransferId,
+        upiPaymentStatus: inrPayoutResult?.status || 'not_initiated'
+      };
+
+      if (inrPayoutResult && payoutTransferId) {
+        response.upiPayoutDetails = {
+          transferId: payoutTransferId,
+          status: inrPayoutResult.status,
+          message: inrPayoutResult.message,
+          amount: parseFloat(request.upiMerchantDetails.am || '0')
+        };
+      }
+
+      return response;
+
+    } catch (error) {
+      console.error('INR payout processing failed:', error);
+      return {
+        success: false,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown payout error'
+      };
+    }
   }
 
   /**

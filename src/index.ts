@@ -70,6 +70,25 @@ app.get('/ip', (req: express.Request, res: express.Response) => {
 // API routes
 app.use('/api/payments', paymentRoutes);
 
+// Health check for payout service
+app.get('/api/payouts/health', async (req: express.Request, res: express.Response) => {
+  try {
+    // Simple health check - in production you'd check Cashfree API connectivity
+    res.status(200).json({
+      success: true,
+      status: 'healthy',
+      service: 'INR Payout Service',
+      timestamp: new Date().toISOString(),
+      environment: config.nodeEnv
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Payout service health check failed'
+    });
+  }
+});
+
 // 404 handler
 app.use('*', (req: express.Request, res: express.Response) => {
   res.status(404).json({

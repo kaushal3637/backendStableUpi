@@ -3,6 +3,7 @@ import Joi from 'joi';
 import { ERC7702Request, APIResponse, EIP7702SponsoredRequest, USDCMetaTransactionRequest, PrepareMetaTransactionRequest } from '../types';
 import { PaymentOrchestrator } from '../services/paymentOrchestrator';
 import { USDCMetaTransactionService } from '../services/usdcMetaTransactionService';
+import { CashfreeService } from '../services/cashfreeService';
 import { config } from '../services/config';
 
 const router = Router();
@@ -258,6 +259,111 @@ router.get('/status/:transactionHash', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Internal server error during status check'
+    } as APIResponse);
+  }
+});
+
+/**
+ * GET /api/payments/payout/status/:transferId
+ * Gets the status of an INR payout transfer
+ */
+router.get('/payout/status/:transferId', async (req: Request, res: Response) => {
+  try {
+    const { transferId } = req.params;
+
+    if (!transferId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Transfer ID is required'
+      } as APIResponse);
+    }
+
+    console.log('Getting payout status for transfer ID:', transferId);
+
+    // Initialize Cashfree service
+    const cashfreeService = new CashfreeService();
+
+    // Get transfer status
+    const statusResponse = await cashfreeService.getTransferStatus(transferId);
+
+    // Return response
+    return res.status(200).json({
+      success: statusResponse.status === 'SUCCESS',
+      status: statusResponse.status,
+      message: statusResponse.message,
+      transferDetails: statusResponse.data,
+      requestedAt: new Date().toISOString(),
+    } as APIResponse);
+
+  } catch (error) {
+    console.error('Payout status check error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during payout status check'
+    } as APIResponse);
+  }
+});
+
+/**
+ * POST /api/payments/process-payout
+ * Processes INR payout after successful USDC transaction
+ */
+router.post('/process-payout', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== config.apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    // Validate request body
+    const { transactionHash, upiMerchantDetails, chainId } = req.body;
+
+    if (!transactionHash || !upiMerchantDetails || !chainId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: transactionHash, upiMerchantDetails, chainId'
+      } as APIResponse);
+    }
+
+    console.log('Processing INR payout for transaction:', transactionHash);
+
+    // Create payment orchestrator for the specified chain
+    const orchestrator = new PaymentOrchestrator(chainId);
+
+    // For now, we'll create a simplified request just for payout processing
+    // In the future, this could be enhanced to verify the USDC transaction first
+    const payoutRequest: ERC7702Request = {
+      upiMerchantDetails,
+      chainId,
+      // We don't need metaTransactionRequest or userOp since USDC is already processed
+    };
+
+    // Process just the payout part
+    const result = await orchestrator.processINRPayoutOnly(payoutRequest, transactionHash);
+
+    if (result.success) {
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'INR payout processed successfully'
+      } as APIResponse);
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.error,
+        data: result
+      } as APIResponse);
+    }
+
+  } catch (error) {
+    console.error('Payout processing error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error during payout processing'
     } as APIResponse);
   }
 });

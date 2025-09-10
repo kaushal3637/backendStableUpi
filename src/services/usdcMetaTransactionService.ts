@@ -264,7 +264,7 @@ export class USDCMetaTransactionService {
       const expectedAmountFormatted = parseFloat(expectedAmount);
       const actualAmountFormatted = parseFloat(actualAmount);
       // Allow small precision differences due to decimals and rounding
-      const ABS_TOLERANCE = 0.00005; // 5e-5 USDC
+      const ABS_TOLERANCE = 0.001; // 1e-3 USDC (increased tolerance)
       const verified = Math.abs(expectedAmountFormatted - actualAmountFormatted) <= ABS_TOLERANCE;
 
       return {

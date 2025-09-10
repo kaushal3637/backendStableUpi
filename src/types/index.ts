@@ -96,6 +96,14 @@ export interface ERC7702Response {
   transactionHash?: string;
   error?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  upiPaymentId?: string; // Cashfree transfer ID
+  upiPaymentStatus?: string; // Cashfree transfer status
+  upiPayoutDetails?: {
+    transferId: string;
+    status: string;
+    message: string;
+    amount: number;
+  };
 }
 
 // UPI Payment types
