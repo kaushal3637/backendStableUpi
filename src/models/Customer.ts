@@ -45,6 +45,13 @@ const CustomerSchema = new mongoose.Schema({
     index: true
   },
 
+  // PhonePe Beneficiary ID (assigned when beneficiary is created)
+  phonepebeneficiaryId: {
+    type: String,
+    sparse: true,
+    index: true
+  },
+
   // QR Code information
   qrCodeData: {
     type: String,
@@ -121,7 +128,7 @@ CustomerSchema.statics.generateCustomerId = function() {
 // Instance method to get beneficiary details for Cashfree
 CustomerSchema.methods.getBeneficiaryDetails = function() {
   return {
-    beneId: this.cashfreeBeneficiaryId || this.customerId,
+    beneId: this.cashfreeBeneficiaryId || this.phonepebeneficiaryId || this.customerId,
     name: this.name,
     email: this.email,
     phone: this.phone,
@@ -176,6 +183,7 @@ interface ICustomer extends mongoose.Document {
   upiId: string;
   upiName?: string;
   cashfreeBeneficiaryId?: string;
+  phonepebeneficiaryId?: string;
   qrCodeData: string;
   qrCodeUrl?: string;
   isActive: boolean;

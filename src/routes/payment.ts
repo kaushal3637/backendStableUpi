@@ -3,7 +3,7 @@ import Joi from 'joi';
 import { ERC7702Request, APIResponse, EIP7702SponsoredRequest, USDCMetaTransactionRequest, PrepareMetaTransactionRequest } from '../types';
 import { PaymentOrchestrator } from '../services/paymentOrchestrator';
 import { USDCMetaTransactionService } from '../services/usdcMetaTransactionService';
-import { CashfreeService } from '../services/cashfreeService';
+import { PhonePeService } from '../services/phonepeService';
 import { config } from '../services/config';
 import { getExplorerUrl } from '../utils/chains';
 
@@ -281,11 +281,11 @@ router.get('/payout/status/:transferId', async (req: Request, res: Response) => 
 
     console.log('Getting payout status for transfer ID:', transferId);
 
-    // Initialize Cashfree service
-    const cashfreeService = new CashfreeService();
+    // Initialize PhonePe service
+    const phonepeService = new PhonePeService();
 
     // Get transfer status
-    const statusResponse = await cashfreeService.getTransferStatus(transferId);
+    const statusResponse = await phonepeService.getTransferStatus(transferId);
 
     // Return response
     return res.status(200).json({
