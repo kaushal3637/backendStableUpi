@@ -431,4 +431,43 @@ router.get('/beneficiaries', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/phonepe/status/:transactionId
+ * Check payment/payout status using PhonePe Status API
+ */
+router.get('/status/:transactionId', async (req: Request, res: Response) => {
+  try {
+    console.log('📊 Status check request received');
+    
+    const { transactionId } = req.params;
+    
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Transaction ID is required'
+      } as APIResponse);
+    }
+
+    console.log(`🔍 Checking status for transaction: ${transactionId}`);
+
+    const phonepeService = new PhonePeService();
+    const statusResult = await phonepeService.checkPaymentStatus(transactionId);
+
+    console.log('✅ Status check completed:', statusResult.code);
+
+    res.json({
+      success: statusResult.success,
+      message: statusResult.message,
+      data: statusResult,
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Status check error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during status check'
+    } as APIResponse);
+  }
+});
+
 export default router;

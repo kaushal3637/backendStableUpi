@@ -346,6 +346,102 @@ export class PhonePeService {
   }
 
   /**
+   * Check payment status using PhonePe Status API format
+   * This follows the official PhonePe Status API specification
+   */
+  async checkPaymentStatus(transactionId: string): Promise<{
+    success: boolean;
+    code: string;
+    message: string;
+    data?: {
+      transactionId: string;
+      merchantId: string;
+      providerReferenceId: string;
+      amount: number;
+      paymentState: string;
+      payResponseCode: string;
+      paymentModes?: Array<{
+        mode: string;
+        amount: number;
+        utr: string;
+      }>;
+    };
+  }> {
+    try {
+      console.log("📊 Backend: Checking payment status via PhonePe Status API...");
+      console.log(`🔍 Checking status for transaction: ${transactionId}`);
+
+      // In production, this would be the actual PhonePe Status API call:
+      // GET https://mercury-uat.phonepe.com/enterprise-sandbox/v3/transaction/{merchantId}/{transactionId}/status
+      // with proper X-VERIFY header calculation
+
+      const endpoint = `/v3/transaction/${this.config.MERCHANT_ID}/${transactionId}/status`;
+      
+      // For UAT sandbox, simulate different status responses based on transaction ID patterns
+      let simulatedResponse;
+      
+      // Simulate different scenarios for testing
+      if (transactionId.includes('FAIL') || transactionId.includes('ERROR')) {
+        simulatedResponse = {
+          success: false,
+          code: "PAYMENT_ERROR",
+          message: "Payment Failed",
+          data: {
+            merchantId: this.config.MERCHANT_ID,
+            transactionId: transactionId,
+            providerReferenceId: `T${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+            amount: 1000, // Amount in paise
+            paymentState: "FAILED",
+            payResponseCode: "UPI_BACKBONE_ERROR"
+          }
+        };
+      } else if (transactionId.includes('PENDING')) {
+        simulatedResponse = {
+          success: true,
+          code: "PAYMENT_PENDING",
+          message: "Payment is pending. It does not indicate failed payment.",
+          data: {
+            merchantId: this.config.MERCHANT_ID,
+            transactionId: transactionId,
+            providerReferenceId: `T${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+            amount: 1000,
+            paymentState: "PENDING",
+            payResponseCode: "PAYMENT_INITIATED"
+          }
+        };
+      } else {
+        // Default to success for other transaction IDs
+        simulatedResponse = {
+          success: true,
+          code: "PAYMENT_SUCCESS",
+          message: "Your payment is successful.",
+          data: {
+            transactionId: transactionId,
+            merchantId: this.config.MERCHANT_ID,
+            providerReferenceId: `T${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+            amount: 1000,
+            paymentState: "COMPLETED",
+            payResponseCode: "SUCCESS",
+            paymentModes: [
+              {
+                mode: "UPI",
+                amount: 1000,
+                utr: `${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+              }
+            ]
+          }
+        };
+      }
+
+      console.log("✅ Payment status retrieved:", simulatedResponse);
+      return simulatedResponse;
+    } catch (error: any) {
+      console.error("Check payment status error:", error.message);
+      throw new Error(`Failed to check payment status: ${error.message}`);
+    }
+  }
+
+  /**
    * Get beneficiary details
    */
   async getBeneficiary(beneId: string): Promise<PhonePeBeneficiaryDetailsResponse> {
@@ -364,7 +460,7 @@ export class PhonePeService {
         beneficiary_email: `${beneId}@example.com`,
         beneficiary_phone: "9876543210",
         beneficiary_instrument_details: {
-          vpa: `${beneId}@paytm`,
+          vpa: `${beneId}@upi`,
           bank_account_number: "1234567890",
           bank_ifsc: "HDFC0000001"
         }
@@ -434,14 +530,14 @@ export class PhonePeService {
           console.error("Beneficiary not found in PhonePe with ID:", beneficiaryId);
           // Last resort fallback for testing
           console.log("Using fallback beneficiary details for testing");
-          vpa = "testmerchant@paytm";
+          vpa = "testmerchant@upi";
           beneficiaryName = "Test Merchant";
         }
       }
 
       if (!vpa) {
         console.warn("No UPI VPA found, using fallback");
-        vpa = "fallback@paytm";
+        vpa = "fallback@upi";
       }
 
       // Prepare UPI string for QR code
@@ -537,7 +633,7 @@ export class PhonePeService {
       .replace(/[^a-z0-9]/g, "")
       .substring(0, 10);
     const randomSuffix = Math.random().toString(36).substring(2, 6);
-    return `${cleanName}${randomSuffix}@paytm`;
+    return `${cleanName}${randomSuffix}@upi`;
   }
 
   /**

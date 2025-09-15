@@ -289,8 +289,8 @@ export class PaymentOrchestrator {
     // Test beneficiary mappings
     const testMappings: { [key: string]: string } = {
       'success@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
-      'merchant@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
-      'testuser@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
+      'merchant@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
+      'testuser@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
     };
 
     // Return mapped beneficiary ID or generate one based on UPI ID
