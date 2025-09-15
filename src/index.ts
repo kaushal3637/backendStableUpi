@@ -4,7 +4,6 @@ import cors from 'cors';
 import { config } from './services/config';
 import paymentRoutes from './routes/payment';
 import phonepeRoutes from './routes/phonepe';
-import customerRoutes from './routes/customers';
 import transactionRoutes from './routes/transactions';
 import {
   securityHeaders,
@@ -73,7 +72,6 @@ app.get('/ip', (req: express.Request, res: express.Response) => {
 // API routes
 app.use('/api/payments', paymentRoutes);
 app.use('/api/phonepe', phonepeRoutes);
-app.use('/api/customers', customerRoutes);
 app.use('/api/transactions', transactionRoutes);
 
 // Health check for payout service
