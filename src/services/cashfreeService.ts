@@ -389,43 +389,66 @@ export class CashfreeService {
     try {
       console.log("📱 Backend: Generating QR code for beneficiary:", beneficiaryId);
 
-      // First try to get beneficiary details from Cashfree using the provided ID
+      // Import Customer model inside the method to avoid circular dependencies
+      const { default: Customer } = await import('../models/Customer');
+      const mongoose = await import('mongoose');
+
+      // Connect to database if not already connected
+      if (mongoose.default.connection.readyState === 0) {
+        await mongoose.default.connect(process.env.DEVELOPMENT_MONGODB_URI || 'mongodb://localhost:27017/stableupi');
+      }
+
       let beneficiaryDetails;
+      let vpa: string;
+      let beneficiaryName: string;
+
+      // First try to find beneficiary in local database
       try {
-        beneficiaryDetails = await this.getBeneficiary(beneficiaryId);
-        console.log("Found beneficiary in Cashfree:", beneficiaryDetails.beneficiary_id);
-      } catch (error) {
-        console.error("Beneficiary not found in Cashfree with ID:", beneficiaryId);
-        // For now, let's create a fallback beneficiary details for testing
-        // In production, you'd want to look this up from your database
-        console.log("Using fallback beneficiary details for testing");
-        beneficiaryDetails = {
-          beneficiary_id: beneficiaryId,
-          beneficiary_name: "Test Merchant",
-          beneficiary_instrument_details: {
-            vpa: "testmerchant@paytm"
-          }
-        };
+        console.log("🔍 Looking up beneficiary in local database...");
+        const customer = await Customer.findOne({
+          $or: [
+            { cashfreeBeneficiaryId: beneficiaryId },
+            { phonepebeneficiaryId: beneficiaryId },
+            { customerId: beneficiaryId }
+          ],
+          isActive: true
+        });
+
+        if (customer && customer.upiId) {
+          console.log("✅ Found beneficiary in database:", customer.customerId);
+          vpa = customer.upiId;
+          beneficiaryName = customer.upiName || customer.name;
+          console.log("📱 Using UPI ID from database:", vpa);
+        } else {
+          throw new Error("Customer not found in database");
+        }
+      } catch (dbError) {
+        console.log("⚠️ Database lookup failed, trying Cashfree API...");
+        
+        // Fallback to Cashfree API
+        try {
+          beneficiaryDetails = await this.getBeneficiary(beneficiaryId);
+          console.log("Found beneficiary in Cashfree:", beneficiaryDetails.beneficiary_id);
+          vpa = beneficiaryDetails.beneficiary_instrument_details?.vpa || '';
+          beneficiaryName = beneficiaryDetails.beneficiary_name;
+        } catch (error) {
+          console.error("Beneficiary not found in Cashfree with ID:", beneficiaryId);
+          // Last resort fallback for testing
+          console.log("Using fallback beneficiary details for testing");
+          vpa = "testmerchant@paytm";
+          beneficiaryName = "Test Merchant";
+        }
       }
 
-      if (!beneficiaryDetails.beneficiary_id) {
-        throw new Error("Beneficiary not found");
-      }
-
-      const vpa = beneficiaryDetails.beneficiary_instrument_details?.vpa;
       if (!vpa) {
-        console.warn("Beneficiary does not have a UPI VPA configured, using fallback");
-        // Use a fallback UPI ID for testing
-        beneficiaryDetails.beneficiary_instrument_details = {
-          ...beneficiaryDetails.beneficiary_instrument_details,
-          vpa: "fallback@paytm"
-        };
+        console.warn("No UPI VPA found, using fallback");
+        vpa = "fallback@paytm";
       }
 
       // Prepare UPI string for QR code
       const upiParams = new URLSearchParams();
-      upiParams.set('pa', vpa || 'fallback@paytm'); // Ensure we have a valid UPI ID
-      upiParams.set('pn', beneficiaryDetails.beneficiary_name || 'Merchant');
+      upiParams.set('pa', vpa);
+      upiParams.set('pn', beneficiaryName || 'Merchant');
       upiParams.set('cu', 'INR');
 
       if (qrRequest.amount && qrRequest.amount > 0) {
