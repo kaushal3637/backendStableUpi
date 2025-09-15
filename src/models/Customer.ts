@@ -58,7 +58,6 @@ const CustomerSchema = new mongoose.Schema({
 });
 
 // Indexes for performance
-CustomerSchema.index({ vpa: 1 }); // Primary search key
 CustomerSchema.index({ name: 1 });
 CustomerSchema.index({ isActive: 1 });
 CustomerSchema.index({ isTestMode: 1 });

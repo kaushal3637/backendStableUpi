@@ -26,6 +26,7 @@ const beneficiarySchema = Joi.object({
 });
 
 const qrCodeRequestSchema = Joi.object({
+  vpa: Joi.string().required().trim().pattern(/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/, 'UPI ID format'),
   amount: Joi.number().positive().optional(),
   purpose: Joi.string().optional(),
   remarks: Joi.string().optional(),
@@ -189,7 +190,7 @@ router.get('/beneficiary/vpa/:vpa', async (req: Request, res: Response) => {
 
 /**
  * POST /api/phonepe/qr/generate
- * Generate QR code for beneficiary
+ * Generate QR code for UPI ID
  */
 router.post('/qr/generate', async (req: Request, res: Response) => {
   try {
@@ -202,17 +203,8 @@ router.post('/qr/generate', async (req: Request, res: Response) => {
       } as APIResponse);
     }
 
-    const { beneficiaryId, ...qrRequest } = req.body;
-
-    if (!beneficiaryId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Beneficiary ID is required'
-      } as APIResponse);
-    }
-
-    // Validate QR request
-    const { error, value } = qrCodeRequestSchema.validate(qrRequest);
+    // Validate QR request (now includes vpa as required field)
+    const { error, value } = qrCodeRequestSchema.validate(req.body);
     if (error) {
       return res.status(400).json({
         success: false,
@@ -220,15 +212,36 @@ router.post('/qr/generate', async (req: Request, res: Response) => {
       } as APIResponse);
     }
 
-    const validatedQrRequest: PhonePeQrCodeRequest = value;
+    const { vpa, ...qrRequest } = value;
 
-    console.log('Generating QR code for beneficiary:', beneficiaryId);
+    console.log('Generating QR code for UPI ID:', vpa);
+
+    // Connect to database to check if beneficiary exists
+    await connectDB();
+    
+    // Find or create beneficiary by VPA
+    let customer = await Customer.findByVpa(vpa);
+    
+    if (!customer) {
+      // Create a basic beneficiary record if it doesn't exist
+      console.log('🆕 Creating basic beneficiary record for QR generation');
+      customer = new Customer({
+        name: 'Merchant', // Default name for QR-only beneficiaries
+        vpa: vpa,
+        isActive: true,
+        isTestMode: true
+      });
+      customer = await customer.save();
+    }
 
     // Initialize PhonePe service
     const phonepeService = new PhonePeService();
 
-    // Generate QR code
-    const result = await phonepeService.generateQrCode(beneficiaryId, validatedQrRequest);
+    // Generate QR code using the customer ID and VPA
+    const result = await phonepeService.generateQrCode(customer._id.toString(), {
+      ...qrRequest,
+      vpa: vpa
+    });
 
     res.status(200).json({
       success: true,
