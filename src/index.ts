@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './services/config';
 import paymentRoutes from './routes/payment';
-import cashfreeRoutes from './routes/cashfree';
 import phonepeRoutes from './routes/phonepe';
 import customerRoutes from './routes/customers';
 import transactionRoutes from './routes/transactions';
@@ -73,7 +72,6 @@ app.get('/ip', (req: express.Request, res: express.Response) => {
 
 // API routes
 app.use('/api/payments', paymentRoutes);
-app.use('/api/cashfree', cashfreeRoutes);
 app.use('/api/phonepe', phonepeRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/transactions', transactionRoutes);
@@ -81,7 +79,7 @@ app.use('/api/transactions', transactionRoutes);
 // Health check for payout service
 app.get('/api/payouts/health', async (req: express.Request, res: express.Response) => {
   try {
-    // Simple health check - in production you'd check Cashfree API connectivity
+    // Simple health check - in production you'd check PhonePe API connectivity
     res.status(200).json({
       success: true,
       status: 'healthy',

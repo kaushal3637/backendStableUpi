@@ -500,39 +500,23 @@ export class PhonePeService {
       // First try to find beneficiary in local database
       try {
         console.log("🔍 Looking up beneficiary in local database...");
-        const customer = await Customer.findOne({
-          $or: [
-            { cashfreeBeneficiaryId: beneficiaryId },
-            { phonepebeneficiaryId: beneficiaryId },
-            { customerId: beneficiaryId }
-          ],
-          isActive: true
-        });
+        const customer = await Customer.findByVpa(beneficiaryId) || await Customer.findById(beneficiaryId);
 
-        if (customer && customer.upiId) {
-          console.log("✅ Found beneficiary in database:", customer.customerId);
-          vpa = customer.upiId;
-          beneficiaryName = customer.upiName || customer.name;
+        if (customer && customer.vpa) {
+          console.log("✅ Found beneficiary in database:", customer._id);
+          vpa = customer.vpa;
+          beneficiaryName = customer.name;
           console.log("📱 Using UPI ID from database:", vpa);
         } else {
           throw new Error("Customer not found in database");
         }
       } catch (dbError) {
-        console.log("⚠️ Database lookup failed, trying PhonePe API...");
+        console.log("⚠️ Database lookup failed, using fallback...");
         
-        // Fallback to PhonePe API
-        try {
-          beneficiaryDetails = await this.getBeneficiary(beneficiaryId);
-          console.log("Found beneficiary in PhonePe:", beneficiaryDetails.beneficiary_id);
-          vpa = beneficiaryDetails.beneficiary_instrument_details?.vpa || '';
-          beneficiaryName = beneficiaryDetails.beneficiary_name;
-        } catch (error) {
-          console.error("Beneficiary not found in PhonePe with ID:", beneficiaryId);
-          // Last resort fallback for testing
-          console.log("Using fallback beneficiary details for testing");
-          vpa = "testmerchant@upi";
-          beneficiaryName = "Test Merchant";
-        }
+        // Fallback for testing
+        console.log("Using fallback beneficiary details for testing");
+        vpa = beneficiaryId.includes('@') ? beneficiaryId : "testmerchant@upi";
+        beneficiaryName = "Test Merchant";
       }
 
       if (!vpa) {

@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import Joi from 'joi';
 import mongoose from 'mongoose';
 import Customer from '../models/Customer';
-import { CashfreeService } from '../services/cashfreeService';
 import { APIResponse } from '../types';
 
 const router = Router();
@@ -22,10 +21,7 @@ const connectDB = async () => {
 // Validation schemas
 const customerCreateSchema = Joi.object({
   name: Joi.string().required().trim(),
-  email: Joi.string().email().required().trim(),
-  phone: Joi.string().optional().trim(),
-  upiId: Joi.string().required().trim(),
-  upiName: Joi.string().optional().trim(),
+  vpa: Joi.string().required().trim().pattern(/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/, 'UPI ID format'),
   isTestMode: Joi.boolean().default(true)
 });
 
@@ -56,64 +52,46 @@ router.post('/create', async (req: Request, res: Response) => {
       } as APIResponse);
     }
 
-    const customerData = value;
+    const { name, vpa, isTestMode = true } = value;
 
-    // Check if customer with this UPI ID or email already exists
-    const existingCustomer = await Customer.findOne({
-      $or: [
-        { upiId: customerData.upiId },
-        { email: customerData.email }
-      ]
-    });
+    // Check if customer already exists by VPA
+    const existingCustomer = await Customer.findByVpa(vpa);
 
     if (existingCustomer) {
-      return res.status(409).json({
-        success: false,
-        error: 'Customer with this UPI ID or email already exists',
+      return res.status(200).json({
+        success: true,
+        message: 'Customer already exists',
         data: {
-          customerId: existingCustomer.customerId,
-          upiId: existingCustomer.upiId,
-          email: existingCustomer.email
+          beneficiaryId: existingCustomer._id.toString(),
+          name: existingCustomer.name,
+          vpa: existingCustomer.vpa,
+          isActive: existingCustomer.isActive
         }
       } as APIResponse);
     }
 
-    // Generate unique customer ID
-    const customerId = Customer.generateCustomerId();
-
-    // Generate UPI QR code data
-    const qrCodeData = `upi://pay?pa=${encodeURIComponent(customerData.upiId)}&pn=${encodeURIComponent(customerData.upiName || customerData.name)}&cu=INR`;
-
     // Create new customer
     const customer = new Customer({
-      customerId,
-      name: customerData.name,
-      email: customerData.email,
-      phone: customerData.phone,
-      upiId: customerData.upiId,
-      upiName: customerData.upiName,
-      qrCodeData,
-      isTestMode: customerData.isTestMode,
+      name: name,
+      vpa: vpa,
       isActive: true,
-      isBeneficiaryAdded: false
+      isTestMode: isTestMode
     });
 
     const savedCustomer = await customer.save();
 
-    console.log('Customer created successfully:', customerId);
+    console.log('✅ Customer created successfully:', savedCustomer._id);
 
     res.status(201).json({
       success: true,
+      message: 'Customer created successfully',
       data: {
-        customerId: savedCustomer.customerId,
+        beneficiaryId: savedCustomer._id.toString(),
         name: savedCustomer.name,
-        email: savedCustomer.email,
-        upiId: savedCustomer.upiId,
-        qrCodeData: savedCustomer.qrCodeData,
-        isTestMode: savedCustomer.isTestMode,
+        vpa: savedCustomer.vpa,
+        isActive: savedCustomer.isActive,
         createdAt: savedCustomer.createdAt
-      },
-      message: 'Customer created successfully'
+      }
     } as APIResponse);
 
   } catch (error: any) {
@@ -126,10 +104,10 @@ router.post('/create', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/customers/:customerId/qrcode
- * Generate QR code for customer
+ * GET /api/customers/list
+ * Get all customers
  */
-router.get('/:customerId/qrcode', async (req: Request, res: Response) => {
+router.get('/list', async (req: Request, res: Response) => {
   try {
     // Validate API key
     const apiKey = req.headers['x-api-key'] as string;
@@ -143,170 +121,15 @@ router.get('/:customerId/qrcode', async (req: Request, res: Response) => {
     // Connect to database
     await connectDB();
 
-    const { customerId } = req.params;
-    const { amount } = req.query;
+    const { limit = 50, offset = 0, search } = req.query;
 
-    if (!customerId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Customer ID is required'
-      } as APIResponse);
-    }
-
-    // Find customer
-    const customer = await Customer.findOne({
-      customerId,
-      isActive: true
-    });
-
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        error: 'Customer not found or inactive'
-      } as APIResponse);
-    }
-
-    // Generate QR code data
-    const qrCodeData = customer.generateUpiQrData(amount ? parseFloat(amount as string) : undefined);
-
-    // Generate QR code URL
-    const qrCodeUrl = CashfreeService.generateQrCodeDataUrl(qrCodeData);
-
-    console.log('QR code generated for customer:', customerId);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        customerId: customer.customerId,
-        qrCodeData,
-        qrCodeUrl,
-        upiId: customer.upiId,
-        name: customer.upiName || customer.name,
-        amount: amount ? parseFloat(amount as string) : undefined
-      },
-      message: 'QR code generated successfully'
-    } as APIResponse);
-
-  } catch (error: any) {
-    console.error('Generate QR code error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Internal server error during QR code generation'
-    } as APIResponse);
-  }
-});
-
-/**
- * POST /api/customers/:customerId/beneficiary/add
- * Add customer as Cashfree beneficiary
- */
-router.post('/:customerId/beneficiary/add', async (req: Request, res: Response) => {
-  try {
-    // Validate API key
-    const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid API key'
-      } as APIResponse);
-    }
-
-    // Connect to database
-    await connectDB();
-
-    const { customerId } = req.params;
-
-    if (!customerId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Customer ID is required'
-      } as APIResponse);
-    }
-
-    // Find customer
-    const customer = await Customer.findOne({
-      customerId,
-      isActive: true
-    });
-
-    if (!customer) {
-      return res.status(404).json({
-        success: false,
-        error: 'Customer not found or inactive'
-      } as APIResponse);
-    }
-
-    if (customer.isBeneficiaryAdded && customer.cashfreeBeneficiaryId) {
-      return res.status(409).json({
-        success: false,
-        error: 'Customer is already registered as a beneficiary',
-        data: {
-          beneficiaryId: customer.cashfreeBeneficiaryId
-        }
-      } as APIResponse);
-    }
-
-    // Get beneficiary details
-    const beneficiaryDetails = customer.getBeneficiaryDetails();
-
-    // Initialize Cashfree service
-    const cashfreeService = new CashfreeService();
-
-    // Add beneficiary to Cashfree
-    const beneficiaryResult = await cashfreeService.addBeneficiary(beneficiaryDetails);
-
-    if (beneficiaryResult.status === 'SUCCESS') {
-      // Update customer with beneficiary ID
-      customer.cashfreeBeneficiaryId = beneficiaryResult.data.beneficiary_id;
-      customer.isBeneficiaryAdded = true;
-      await customer.save();
-
-      console.log('Beneficiary added successfully for customer:', customerId);
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        customerId: customer.customerId,
-        beneficiaryId: customer.cashfreeBeneficiaryId,
-        beneficiaryDetails: beneficiaryResult.data,
-        isBeneficiaryAdded: customer.isBeneficiaryAdded
-      },
-      message: 'Beneficiary added successfully'
-    } as APIResponse);
-
-  } catch (error: any) {
-    console.error('Add beneficiary error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Internal server error during beneficiary addition'
-    } as APIResponse);
-  }
-});
-
-/**
- * GET /api/customers
- * Get all customers (for testing/admin purposes)
- */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    // Validate API key
-    const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid API key'
-      } as APIResponse);
-    }
-
-    // Connect to database
-    await connectDB();
-
-    const { limit = 50, offset = 0, testMode } = req.query;
-
+    // Build search filter
     const filter: any = { isActive: true };
-    if (testMode !== undefined) {
-      filter.isTestMode = testMode === 'true';
+    if (search) {
+      filter.$or = [
+        { name: new RegExp(search as string, 'i') },
+        { vpa: new RegExp(search as string, 'i') }
+      ];
     }
 
     const customers = await Customer.find(filter)
@@ -320,16 +143,15 @@ router.get('/', async (req: Request, res: Response) => {
       success: true,
       data: {
         customers: customers.map(customer => ({
-          customerId: customer.customerId,
+          beneficiaryId: customer._id.toString(),
           name: customer.name,
-          email: customer.email,
-          upiId: customer.upiId,
-          isBeneficiaryAdded: customer.isBeneficiaryAdded,
-          cashfreeBeneficiaryId: customer.cashfreeBeneficiaryId,
-          isTestMode: customer.isTestMode,
+          vpa: customer.vpa,
+          isActive: customer.isActive,
+          totalReceived: customer.totalReceived,
           totalPaid: customer.totalPaid,
           transactionCount: customer.transactionCount,
-          createdAt: customer.createdAt
+          createdAt: customer.createdAt,
+          updatedAt: customer.updatedAt
         })),
         pagination: {
           total: totalCount,
@@ -341,10 +163,198 @@ router.get('/', async (req: Request, res: Response) => {
     } as APIResponse);
 
   } catch (error: any) {
-    console.error('Get customers error:', error);
+    console.error('List customers error:', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Internal server error during customers retrieval'
+      error: error.message || 'Internal server error during customer retrieval'
+    } as APIResponse);
+  }
+});
+
+/**
+ * GET /api/customers/:vpa
+ * Get customer by VPA
+ */
+router.get('/:vpa', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    const { vpa } = req.params;
+
+    if (!vpa) {
+      return res.status(400).json({
+        success: false,
+        error: 'VPA is required'
+      } as APIResponse);
+    }
+
+    // Connect to database
+    await connectDB();
+
+    const customer = await Customer.findByVpa(vpa);
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      } as APIResponse);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        beneficiaryId: customer._id.toString(),
+        name: customer.name,
+        vpa: customer.vpa,
+        isActive: customer.isActive,
+        totalReceived: customer.totalReceived,
+        totalPaid: customer.totalPaid,
+        transactionCount: customer.transactionCount,
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt
+      },
+      message: 'Customer retrieved successfully'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Get customer error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during customer retrieval'
+    } as APIResponse);
+  }
+});
+
+/**
+ * PUT /api/customers/:vpa
+ * Update customer by VPA
+ */
+router.put('/:vpa', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    const { vpa } = req.params;
+    const { name } = req.body;
+
+    if (!vpa) {
+      return res.status(400).json({
+        success: false,
+        error: 'VPA is required'
+      } as APIResponse);
+    }
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Name is required'
+      } as APIResponse);
+    }
+
+    // Connect to database
+    await connectDB();
+
+    const customer = await Customer.findByVpa(vpa);
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      } as APIResponse);
+    }
+
+    // Update customer
+    customer.name = name.trim();
+    customer.updatedAt = new Date();
+
+    const updatedCustomer = await customer.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        beneficiaryId: updatedCustomer._id.toString(),
+        name: updatedCustomer.name,
+        vpa: updatedCustomer.vpa,
+        isActive: updatedCustomer.isActive,
+        updatedAt: updatedCustomer.updatedAt
+      },
+      message: 'Customer updated successfully'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Update customer error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during customer update'
+    } as APIResponse);
+  }
+});
+
+/**
+ * DELETE /api/customers/:vpa
+ * Soft delete customer by VPA
+ */
+router.delete('/:vpa', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    const { vpa } = req.params;
+
+    if (!vpa) {
+      return res.status(400).json({
+        success: false,
+        error: 'VPA is required'
+      } as APIResponse);
+    }
+
+    // Connect to database
+    await connectDB();
+
+    const customer = await Customer.findByVpa(vpa);
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Customer not found'
+      } as APIResponse);
+    }
+
+    // Soft delete - set isActive to false
+    customer.isActive = false;
+    customer.updatedAt = new Date();
+
+    await customer.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Customer deleted successfully'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Delete customer error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during customer deletion'
     } as APIResponse);
   }
 });

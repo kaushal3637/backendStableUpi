@@ -177,7 +177,7 @@ export class PaymentOrchestrator {
         };
       }
 
-      // Step 3: Initiate INR payout to merchant via Cashfree
+      // Step 3: Initiate INR payout to merchant via PhonePe
       console.log('Step 3: Initiating INR payout to merchant...');
 
       let inrPayoutResult = null;
@@ -199,7 +199,6 @@ export class PaymentOrchestrator {
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
             beneficiaryVpa: request.upiMerchantDetails.pa,
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
-            fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
 
           console.log('Initiating INR payout:', {
@@ -323,7 +322,6 @@ export class PaymentOrchestrator {
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
             beneficiaryVpa: request.upiMerchantDetails.pa,
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
-            fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
 
           console.log('Initiating INR payout:', {

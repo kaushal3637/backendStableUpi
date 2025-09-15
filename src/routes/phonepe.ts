@@ -19,22 +19,10 @@ const connectDB = async () => {
   }
 };
 
-// Validation schemas
+// Validation schemas - simplified to only name and vpa
 const beneficiarySchema = Joi.object({
-  beneId: Joi.string().required(),
-  name: Joi.string().required(),
-  email: Joi.string().email().optional(),
-  phone: Joi.string().optional(),
-  vpa: Joi.string().optional(),
-  bankAccount: Joi.object({
-    accountNumber: Joi.string().required(),
-    ifsc: Joi.string().required(),
-    accountHolderName: Joi.string().required()
-  }).optional(),
-  address1: Joi.string().optional(),
-  city: Joi.string().optional(),
-  state: Joi.string().optional(),
-  pincode: Joi.string().optional()
+  name: Joi.string().required().trim(),
+  vpa: Joi.string().required().trim().pattern(/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/, 'UPI ID format')
 });
 
 const qrCodeRequestSchema = Joi.object({
@@ -68,106 +56,60 @@ router.post('/beneficiary/add', async (req: Request, res: Response) => {
       } as APIResponse);
     }
 
-    const beneficiary: PhonePeBeneficiary = value;
+    const { name, vpa } = value;
 
-    console.log('Adding beneficiary:', beneficiary.beneId);
+    console.log('Adding beneficiary:', vpa);
 
     // Connect to database
     await connectDB();
 
-    // Initialize PhonePe service
-    const phonepeService = new PhonePeService();
-
-    // Add beneficiary to PhonePe
-    const result = await phonepeService.addBeneficiary(beneficiary);
-
-    // Handle PhonePe error responses
-    if (result.status === "ERROR") {
-      return res.status(409).json({
-        success: false,
-        error: result.message || 'Failed to add beneficiary to PhonePe',
-        data: result.data
-      } as APIResponse);
-    }
-
     try {
-      // Store beneficiary data in local database
-      console.log('📝 Storing beneficiary in database...');
-
-      // Check if customer already exists
-      const existingCustomer = await Customer.findOne({
-        $or: [
-          { customerId: beneficiary.beneId },
-          { upiId: beneficiary.vpa },
-          { phonepebeneficiaryId: beneficiary.beneId }
-        ]
-      });
+      // Check if beneficiary already exists by VPA
+      const existingCustomer = await Customer.findByVpa(vpa);
 
       let customer;
       if (existingCustomer) {
         // Update existing customer
-        console.log('🔄 Updating existing customer:', existingCustomer.customerId);
-        existingCustomer.phonepebeneficiaryId = beneficiary.beneId;
-        existingCustomer.isBeneficiaryAdded = true;
-        existingCustomer.upiId = beneficiary.vpa || existingCustomer.upiId;
-        existingCustomer.name = beneficiary.name;
-        if (beneficiary.email) existingCustomer.email = beneficiary.email;
-        if (beneficiary.phone) existingCustomer.phone = beneficiary.phone;
+        console.log('🔄 Updating existing customer:', existingCustomer._id);
+        existingCustomer.name = name;
         existingCustomer.updatedAt = new Date();
         customer = await existingCustomer.save();
       } else {
         // Create new customer record
         console.log('🆕 Creating new customer record');
-        const qrCodeData = beneficiary.vpa ? `upi://pay?pa=${encodeURIComponent(beneficiary.vpa)}&pn=${encodeURIComponent(beneficiary.name)}&cu=INR` : '';
 
         customer = new Customer({
-          customerId: beneficiary.beneId,
-          name: beneficiary.name,
-          email: beneficiary.email || `bene_${beneficiary.beneId}@example.com`,
-          phone: beneficiary.phone || '',
-          upiId: beneficiary.vpa || '',
-          upiName: beneficiary.name,
-          phonepebeneficiaryId: beneficiary.beneId,
-          qrCodeData: qrCodeData,
+          name: name,
+          vpa: vpa,
           isActive: true,
-          isBeneficiaryAdded: true,
           isTestMode: true
         });
 
         customer = await customer.save();
       }
 
-      console.log('✅ Beneficiary stored in database:', customer.customerId);
+      console.log('✅ Beneficiary stored in database:', customer._id);
 
-      // Return success response with both PhonePe and database data
+      // Return success response with database data
       res.status(200).json({
         success: true,
         data: {
-          phonepe: result.data,
           database: {
-            customerId: customer.customerId,
+            beneficiaryId: customer._id.toString(),
             name: customer.name,
-            upiId: customer.upiId,
-            phonepebeneficiaryId: customer.phonepebeneficiaryId,
-            isBeneficiaryAdded: customer.isBeneficiaryAdded
+            vpa: customer.vpa,
+            isActive: customer.isActive
           }
         },
-        message: 'Beneficiary added successfully to both PhonePe and local database'
+        message: 'Beneficiary added successfully to database'
       } as APIResponse);
 
     } catch (dbError: any) {
       console.error('❌ Database storage error:', dbError);
 
-      // Beneficiary was created in PhonePe but failed to store locally
-      res.status(207).json({ // 207 Multi-Status
-        success: true,
-        warning: 'Beneficiary created in PhonePe but failed to store locally',
-        data: {
-          phonepe: result.data,
-          database: null
-        },
-        error: dbError.message,
-        message: 'Partial success: Beneficiary created in PhonePe'
+      res.status(500).json({
+        success: false,
+        error: dbError.message || 'Failed to store beneficiary in database'
       } as APIResponse);
     }                                                            
     
@@ -182,10 +124,10 @@ router.post('/beneficiary/add', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/phonepe/beneficiary/:beneId
- * Get beneficiary details
+ * GET /api/phonepe/beneficiary/vpa/:vpa
+ * Get beneficiary details by VPA
  */
-router.get('/beneficiary/:beneId', async (req: Request, res: Response) => {
+router.get('/beneficiary/vpa/:vpa', async (req: Request, res: Response) => {
   try {
     // Validate API key
     const apiKey = req.headers['x-api-key'] as string;
@@ -196,26 +138,43 @@ router.get('/beneficiary/:beneId', async (req: Request, res: Response) => {
       } as APIResponse);
     }
 
-    const { beneId } = req.params;
+    const { vpa } = req.params;
 
-    if (!beneId) {
+    if (!vpa) {
       return res.status(400).json({
         success: false,
-        error: 'Beneficiary ID is required'
+        error: 'VPA is required'
       } as APIResponse);
     }
 
-    console.log('Getting beneficiary details:', beneId);
+    console.log('Getting beneficiary details by VPA:', vpa);
 
-    // Initialize PhonePe service
-    const phonepeService = new PhonePeService();
+    // Connect to database
+    await connectDB();
 
-    // Get beneficiary details
-    const result = await phonepeService.getBeneficiary(beneId);
+    // Find beneficiary by VPA
+    const customer = await Customer.findByVpa(vpa);
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        error: 'Beneficiary not found'
+      } as APIResponse);
+    }
 
     res.status(200).json({
       success: true,
-      data: result,
+      data: {
+        beneficiaryId: customer._id.toString(),
+        name: customer.name,
+        vpa: customer.vpa,
+        isActive: customer.isActive,
+        totalReceived: customer.totalReceived,
+        totalPaid: customer.totalPaid,
+        transactionCount: customer.transactionCount,
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt
+      },
       message: 'Beneficiary details retrieved successfully'
     } as APIResponse);
 
@@ -382,13 +341,11 @@ router.get('/beneficiaries', async (req: Request, res: Response) => {
     const { limit = 50, offset = 0, search } = req.query;
 
     // Build search filter
-    const filter: any = { isBeneficiaryAdded: true };
+    const filter: any = { isActive: true };
     if (search) {
       filter.$or = [
         { name: new RegExp(search as string, 'i') },
-        { upiId: new RegExp(search as string, 'i') },
-        { customerId: new RegExp(search as string, 'i') },
-        { phonepebeneficiaryId: new RegExp(search as string, 'i') }
+        { vpa: new RegExp(search as string, 'i') }
       ];
     }
 
@@ -403,13 +360,13 @@ router.get('/beneficiaries', async (req: Request, res: Response) => {
       success: true,
       data: {
         beneficiaries: beneficiaries.map(beneficiary => ({
-          customerId: beneficiary.customerId,
+          beneficiaryId: beneficiary._id.toString(),
           name: beneficiary.name,
-          email: beneficiary.email,
-          upiId: beneficiary.upiId,
-          phonepebeneficiaryId: beneficiary.phonepebeneficiaryId,
-          isBeneficiaryAdded: beneficiary.isBeneficiaryAdded,
-          qrCodeData: beneficiary.qrCodeData,
+          vpa: beneficiary.vpa,
+          isActive: beneficiary.isActive,
+          totalReceived: beneficiary.totalReceived,
+          totalPaid: beneficiary.totalPaid,
+          transactionCount: beneficiary.transactionCount,
           createdAt: beneficiary.createdAt,
           updatedAt: beneficiary.updatedAt
         })),
