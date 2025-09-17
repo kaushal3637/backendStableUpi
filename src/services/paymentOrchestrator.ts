@@ -3,7 +3,7 @@ import { UserOpService } from './userOpService';
 import { USDCService } from './usdcService';
 import { EIP7702Service } from './eip7702Service';
 import { USDCMetaTransactionService } from './usdcMetaTransactionService';
-import { PhonePeService, PhonePeTransferRequest } from './phonepeService';
+import { CashfreeService, CashfreeTransferRequest } from './cashfreeService';
 import { config } from './config';
 
 export class PaymentOrchestrator {
@@ -11,21 +11,21 @@ export class PaymentOrchestrator {
   private usdcService: USDCService;
   private eip7702Service: EIP7702Service;
   private usdcMetaTransactionService: USDCMetaTransactionService;
-  private phonepeService: PhonePeService;
+  private cashfreeService: CashfreeService;
 
   constructor(chainId: number) {
     this.userOpService = new UserOpService(chainId);
     this.usdcService = new USDCService(chainId);
     this.eip7702Service = new EIP7702Service(chainId);
     this.usdcMetaTransactionService = new USDCMetaTransactionService(chainId);
-    this.phonepeService = new PhonePeService();
+    this.cashfreeService = new CashfreeService();
   }
 
   /**
    * Processes the complete payment flow:
    * 1. Execute USDC meta transaction OR EIP-7702 sponsored transaction OR legacy UserOp
    * 2. Transfer USDC to treasury (if applicable)
-   * 3. Initiate INR payout to merchant via PhonePe
+   * 3. Initiate INR payout to merchant via Cashfree
    * 4. Return success response with complete transaction details
    */
   public async processPayment(request: ERC7702Request): Promise<ERC7702Response> {
@@ -177,7 +177,7 @@ export class PaymentOrchestrator {
         };
       }
 
-      // Step 3: Initiate INR payout to merchant via PhonePe
+      // Step 3: Initiate INR payout to merchant via Cashfree
       console.log('Step 3: Initiating INR payout to merchant...');
 
       let inrPayoutResult = null;
@@ -191,14 +191,15 @@ export class PaymentOrchestrator {
           // Generate unique transfer ID
           const transferId = `TXN_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
-          // Create transfer request for PhonePe
-          const transferRequest: PhonePeTransferRequest = {
+          // Create transfer request for Cashfree
+          const transferRequest: CashfreeTransferRequest = {
             transferId,
             transferAmount: inrAmount,
             beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
             beneficiaryVpa: request.upiMerchantDetails.pa,
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
+            fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
 
           console.log('Initiating INR payout:', {
@@ -208,7 +209,7 @@ export class PaymentOrchestrator {
           });
 
           // Initiate the payout
-          inrPayoutResult = await this.phonepeService.initiateTransfer(transferRequest);
+          inrPayoutResult = await this.cashfreeService.initiateTransfer(transferRequest);
 
           if (inrPayoutResult.status === 'SUCCESS' || inrPayoutResult.status === 'RECEIVED') {
             payoutTransferId = transferId;
@@ -288,8 +289,8 @@ export class PaymentOrchestrator {
     // Test beneficiary mappings
     const testMappings: { [key: string]: string } = {
       'success@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
-      'merchant@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
-      'testuser@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
+      'merchant@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
+      'testuser@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
     };
 
     // Return mapped beneficiary ID or generate one based on UPI ID
@@ -314,14 +315,15 @@ export class PaymentOrchestrator {
           // Generate unique transfer ID
           const transferId = `TXN_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
-          // Create transfer request for PhonePe
-          const transferRequest: PhonePeTransferRequest = {
+          // Create transfer request for Cashfree
+          const transferRequest: CashfreeTransferRequest = {
             transferId,
             transferAmount: inrAmount,
             beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
             beneficiaryVpa: request.upiMerchantDetails.pa,
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
+            fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
 
           console.log('Initiating INR payout:', {
@@ -331,7 +333,7 @@ export class PaymentOrchestrator {
           });
 
           // Initiate the payout
-          inrPayoutResult = await this.phonepeService.initiateTransfer(transferRequest);
+          inrPayoutResult = await this.cashfreeService.initiateTransfer(transferRequest);
 
           if (inrPayoutResult.status === 'SUCCESS' || inrPayoutResult.status === 'RECEIVED') {
             payoutTransferId = transferId;
