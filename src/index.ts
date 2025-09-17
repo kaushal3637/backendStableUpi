@@ -3,8 +3,11 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './services/config';
 import paymentRoutes from './routes/payment';
+import delegationRoutes from './routes/delegation';
 import phonepeRoutes from './routes/phonepe';
 import transactionRoutes from './routes/transactions';
+import bundlerRoutes from './routes/bundler';
+import paymasterRoutes from './routes/paymaster';
 import {
   securityHeaders,
   createRateLimiter,
@@ -71,8 +74,11 @@ app.get('/ip', (req: express.Request, res: express.Response) => {
 
 // API routes
 app.use('/api/payments', paymentRoutes);
+app.use('/api', delegationRoutes);
 app.use('/api/phonepe', phonepeRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api', bundlerRoutes);
+app.use('/api', paymasterRoutes);
 
 // Health check for payout service
 app.get('/api/payouts/health', async (req: express.Request, res: express.Response) => {
