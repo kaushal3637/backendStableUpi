@@ -95,7 +95,7 @@ export interface ERC7702Response {
   success: boolean;
   transactionHash?: string;
   error?: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
+  status: 'pending' | 'processing' | 'completed' | 'completed_with_payout_failure' | 'failed' | 'refunded';
   upiPaymentId?: string; // Cashfree transfer ID
   upiPaymentStatus?: string; // Cashfree transfer status
   upiPayoutDetails?: {

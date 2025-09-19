@@ -205,11 +205,24 @@ export class USDCService {
         );
         console.log('  Any USDC Transfer events:', anyTransferLogs.length);
         
-        return { verified: false, error: 'No USDC transfer events found in transaction' };
+        if (anyTransferLogs.length === 0) {
+          return { verified: false, error: 'No USDC transfer events found in transaction' };
+        } else {
+          // We found at least one USDC transfer event, but not matching from/to.
+          // This is not a fatal error for the function, but we should return not verified.
+          return { 
+            verified: false, 
+            error: `No USDC transfer event found from ${from} to ${to}, but found ${anyTransferLogs.length} USDC transfer event(s) in transaction.` 
+          };
+        }
       }
 
-      // Decode the transfer amount from the first matching log
+      // At this point, we have at least one matching transfer log
       const transferLog = transferLogs[0];
+      if (!transferLog) {
+        // This should not happen, but for safety
+        return { verified: false, error: 'Unexpected error: transferLog is undefined' };
+      }
       const actualAmount = ethers.formatUnits(transferLog.data, 6);
       const expectedAmountFormatted = parseFloat(expectedAmount);
       const actualAmountFormatted = parseFloat(actualAmount);

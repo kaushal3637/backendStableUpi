@@ -8,15 +8,19 @@ async function main() {
   const chainId = Number(process.env.TEST_CHAIN_ID || 421614);
   const to = process.env.TEST_REFUND_TO || '0x1234567890123456789012345678901234567890';
   const amount = process.env.TEST_REFUND_AMOUNT || '1.000000';
+  const from = process.env.TEST_REFUND_FROM || '0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed';
+  const txHash = process.env.TEST_REFUND_TXHASH || '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const networkFee = process.env.TEST_REFUND_NETWORK_FEE || '0.001000';
+  const totalPaid = process.env.TEST_REFUND_TOTAL_PAID || '1.001000';
   const reason = process.env.TEST_REFUND_REASON || 'script_refund_test';
 
   console.log('Triggering refund...');
-  console.log({ baseUrl, chainId, to, amount, reason });
+  console.log({ baseUrl, chainId, to, amount, from, txHash, networkFee, totalPaid, reason });
 
   try {
     const res = await axios.post(
       `${baseUrl}/api/payments/refund`,
-      { chainId, to, amount, reason },
+      { chainId, to, amount, from, txHash, networkFee, totalPaid, reason },
       {
         headers: {
           'Content-Type': 'application/json',

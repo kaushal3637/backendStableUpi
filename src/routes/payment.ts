@@ -1,18 +1,26 @@
-import { Router, Request, Response } from 'express';
-import Joi from 'joi';
-import { ERC7702Request, APIResponse, EIP7702SponsoredRequest, USDCMetaTransactionRequest, PrepareMetaTransactionRequest } from '../types';
-import { PaymentOrchestrator } from '../services/paymentOrchestrator';
-import { USDCMetaTransactionService } from '../services/usdcMetaTransactionService';
-import { USDCService } from '../services/usdcService';
-import { CashfreeService } from '../services/cashfreeService';
-import { config } from '../services/config';
-import { getExplorerUrl } from '../utils/chains';
+import { Router, Request, Response } from "express";
+import Joi from "joi";
+import {
+  ERC7702Request,
+  APIResponse,
+  EIP7702SponsoredRequest,
+  USDCMetaTransactionRequest,
+  PrepareMetaTransactionRequest,
+} from "../types";
+import { PaymentOrchestrator } from "../services/paymentOrchestrator";
+import { USDCMetaTransactionService } from "../services/usdcMetaTransactionService";
+import { USDCService } from "../services/usdcService";
+import { CashfreeService } from "../services/cashfreeService";
+import { config } from "../services/config";
+import { getExplorerUrl } from "../utils/chains";
 
 const router = Router();
 
 // Validation schema for ERC-7702 request
 const userOpSchema = Joi.object({
-  sender: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  sender: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
   nonce: Joi.string().required(),
   initCode: Joi.string().required(),
   callData: Joi.string().required(),
@@ -37,23 +45,35 @@ const upiMerchantSchema = Joi.object({
 // EIP-7702 Authorization schema
 const authorizationSchema = Joi.object({
   chainId: Joi.number().required(),
-  address: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  address: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
   nonce: Joi.string().required(),
   yParity: Joi.number().valid(0, 1).required(),
-  r: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
-  s: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+  r: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{64}$/)
+    .required(),
+  s: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{64}$/)
+    .required(),
 });
 
 // EIP-7702 Call schema
 const callSchema = Joi.object({
-  to: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  to: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
   value: Joi.string().default("0"),
-  data: Joi.string().pattern(/^0x[a-fA-F0-9]*$/).default("0x"),
+  data: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]*$/)
+    .default("0x"),
 });
 
 // EIP-7702 Sponsored Request schema
 const sponsoredRequestSchema = Joi.object({
-  userAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  userAddress: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
   calls: Joi.array().items(callSchema).min(1).required(),
   authorization: authorizationSchema.required(),
   upiMerchantDetails: upiMerchantSchema.required(),
@@ -63,24 +83,38 @@ const sponsoredRequestSchema = Joi.object({
 // USDC Meta Transaction schema
 const usdcMetaTransactionSignatureSchema = Joi.object({
   v: Joi.number().valid(27, 28).required(),
-  r: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
-  s: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+  r: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{64}$/)
+    .required(),
+  s: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{64}$/)
+    .required(),
 });
 
 const usdcMetaTransactionRequestSchema = Joi.object({
-  from: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
-  to: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  from: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
+  to: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
   value: Joi.string().required(),
   validAfter: Joi.number().required(),
   validBefore: Joi.number().required(),
-  nonce: Joi.string().pattern(/^0x[a-fA-F0-9]{64}$/).required(),
+  nonce: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{64}$/)
+    .required(),
   signature: usdcMetaTransactionSignatureSchema.required(),
   chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
 });
 
 const prepareMetaTransactionRequestSchema = Joi.object({
-  from: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
-  to: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+  from: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
+  to: Joi.string()
+    .pattern(/^0x[a-fA-F0-9]{40}$/)
+    .required(),
   value: Joi.string().required(),
   validAfter: Joi.number().optional(),
   validBefore: Joi.number().optional(),
@@ -94,74 +128,82 @@ const erc7702RequestSchema = Joi.object({
   metaTransactionRequest: usdcMetaTransactionRequestSchema.optional(),
   upiMerchantDetails: upiMerchantSchema.required(),
   chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
-}).xor('userOp', 'sponsoredRequest', 'metaTransactionRequest'); // Must have exactly one of the three
+}).xor("userOp", "sponsoredRequest", "metaTransactionRequest"); // Must have exactly one of the three
 
 /**
  * POST /api/payments/prepare-meta-transaction
  * Prepares a USDC meta transaction for signing
  */
-router.post('/prepare-meta-transaction', async (req: Request, res: Response) => {
-  try {
-    // Validate API key
-    const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== config.apiKey) {
-      return res.status(401).json({
+router.post(
+  "/prepare-meta-transaction",
+  async (req: Request, res: Response) => {
+    try {
+      // Validate API key
+      const apiKey = req.headers["x-api-key"] as string;
+      if (!apiKey || apiKey !== config.apiKey) {
+        return res.status(401).json({
+          success: false,
+          error: "Invalid API key",
+        } as APIResponse);
+      }
+
+      // Validate request body
+      const { error, value } = prepareMetaTransactionRequestSchema.validate(
+        req.body
+      );
+      if (error) {
+        return res.status(400).json({
+          success: false,
+          error: `Validation error: ${error.details[0].message}`,
+        } as APIResponse);
+      }
+
+      const request: PrepareMetaTransactionRequest = value;
+
+      console.log("Preparing USDC meta transaction:", {
+        from: request.from,
+        to: request.to,
+        value: request.value,
+        chainId: request.chainId,
+      });
+
+      // Create meta transaction service for the specified chain
+      const metaTransactionService = new USDCMetaTransactionService(
+        request.chainId
+      );
+
+      // Prepare the meta transaction
+      const result = await metaTransactionService.prepareMetaTransaction(
+        request
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: "Meta transaction prepared successfully",
+      } as APIResponse);
+    } catch (error) {
+      console.error("Meta transaction preparation error:", error);
+      res.status(500).json({
         success: false,
-        error: 'Invalid API key'
+        error: "Internal server error during meta transaction preparation",
       } as APIResponse);
     }
-
-    // Validate request body
-    const { error, value } = prepareMetaTransactionRequestSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({
-        success: false,
-        error: `Validation error: ${error.details[0].message}`
-      } as APIResponse);
-    }
-
-    const request: PrepareMetaTransactionRequest = value;
-
-    console.log('Preparing USDC meta transaction:', {
-      from: request.from,
-      to: request.to,
-      value: request.value,
-      chainId: request.chainId
-    });
-
-    // Create meta transaction service for the specified chain
-    const metaTransactionService = new USDCMetaTransactionService(request.chainId);
-
-    // Prepare the meta transaction
-    const result = await metaTransactionService.prepareMetaTransaction(request);
-
-    res.status(200).json({
-      success: true,
-      data: result,
-      message: 'Meta transaction prepared successfully'
-    } as APIResponse);
-
-  } catch (error) {
-    console.error('Meta transaction preparation error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error during meta transaction preparation'
-    } as APIResponse);
   }
-});
+);
 
 /**
  * POST /api/payments/process
  * Processes USDC meta transaction, ERC-7702 UserOp and initiates UPI payment
  */
-router.post('/process', async (req: Request, res: Response) => {
+router.post("/process", async (req: Request, res: Response) => {
   try {
     // Validate API key
-    const apiKey = req.headers['x-api-key'] as string;
+    const apiKey = req.headers["x-api-key"] as string;
     if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
-        error: 'Invalid API key'
+        error: "Invalid API key",
       } as APIResponse);
     }
 
@@ -170,32 +212,35 @@ router.post('/process', async (req: Request, res: Response) => {
     if (error) {
       return res.status(400).json({
         success: false,
-        error: `Validation error: ${error.details[0].message}`
+        error: `Validation error: ${error.details[0].message}`,
       } as APIResponse);
     }
 
     const request: ERC7702Request = value;
 
     if (request.metaTransactionRequest) {
-      console.log('Processing USDC meta transaction payment request:', {
+      console.log("Processing USDC meta transaction payment request:", {
         chainId: request.chainId,
         from: request.metaTransactionRequest.from,
         to: request.metaTransactionRequest.to,
         value: request.metaTransactionRequest.value,
-        payee: request.upiMerchantDetails.pa
+        payee: request.upiMerchantDetails.pa,
       });
     } else if (request.sponsoredRequest) {
-      console.log('Processing EIP-7702 sponsored payment request (deprecated):', {
-        chainId: request.chainId,
-        userAddress: request.sponsoredRequest.userAddress,
-        payee: request.upiMerchantDetails.pa,
-        callsCount: request.sponsoredRequest.calls.length
-      });
+      console.log(
+        "Processing EIP-7702 sponsored payment request (deprecated):",
+        {
+          chainId: request.chainId,
+          userAddress: request.sponsoredRequest.userAddress,
+          payee: request.upiMerchantDetails.pa,
+          callsCount: request.sponsoredRequest.calls.length,
+        }
+      );
     } else {
-      console.log('Processing legacy ERC-7702 payment request (deprecated):', {
+      console.log("Processing legacy ERC-7702 payment request (deprecated):", {
         chainId: request.chainId,
         sender: request.userOp?.sender,
-        payee: request.upiMerchantDetails.pa
+        payee: request.upiMerchantDetails.pa,
       });
     }
 
@@ -209,21 +254,20 @@ router.post('/process', async (req: Request, res: Response) => {
       res.status(200).json({
         success: true,
         data: result,
-        message: 'Payment processed successfully'
+        message: "Payment processed successfully",
       } as APIResponse);
     } else {
       res.status(400).json({
         success: false,
         error: result.error,
-        data: result
+        data: result,
       } as APIResponse);
     }
-
   } catch (error) {
-    console.error('Payment processing error:', error);
+    console.error("Payment processing error:", error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error during payment processing'
+      error: "Internal server error during payment processing",
     } as APIResponse);
   }
 });
@@ -231,38 +275,76 @@ router.post('/process', async (req: Request, res: Response) => {
 /**
  * POST /api/payments/refund
  * Triggers a refund to the original payer when UPI payout fails
- * Body: { chainId: number, to: string, amount: string, reason?: string }
+ * Body: { chainId: number, to: string, amount?: string, from: string, txHash: string, networkFee?: string, totalPaid?: string, reason?: string }
  */
-router.post('/refund', async (req: Request, res: Response) => {
+router.post("/refund", async (req: Request, res: Response) => {
   try {
     // Validate API key
-    const apiKey = req.headers['x-api-key'] as string;
+    const apiKey = req.headers["x-api-key"] as string;
     if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
-        error: 'Invalid API key'
+        error: "Invalid API key",
       } as APIResponse);
     }
 
-    const { chainId, to, amount, reason } = req.body || {};
-    if (!chainId || !to || !amount) {
+    const { chainId, to, amount, from, txHash, networkFee, totalPaid, reason } =
+      req.body || {};
+    if (!chainId || !to || !from || !txHash) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: chainId, to, amount'
+        error: "Missing required fields: chainId, to, from, txHash",
+      } as APIResponse);
+    }
+
+    // Calculate refund amount: if totalPaid and networkFee provided, use totalPaid - networkFee; otherwise use amount
+    let refundAmount: string;
+    if (totalPaid && networkFee) {
+      const totalPaidNum = parseFloat(totalPaid);
+      const networkFeeNum = parseFloat(networkFee);
+      refundAmount = Math.max(totalPaidNum - networkFeeNum, 0).toFixed(6);
+    } else if (amount) {
+      refundAmount = amount;
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "Either (totalPaid + networkFee) or amount must be provided",
       } as APIResponse);
     }
 
     // Use USDCService with backend signer to perform transferFrom from treasury
     const directUsdcService = new USDCService(chainId);
 
-    const refundAmount = amount; // Assume amount already accounts for fees if desired
-    console.log(`Manual refund requested: chainId=${chainId} to=${to} amount=${refundAmount} reason=${reason || 'n/a'}`);
+    console.log(
+      `Manual refund requested: chainId=${chainId} to=${to} refundAmount=${refundAmount} totalPaid=${totalPaid} networkFee=${networkFee} reason=${
+        reason || "n/a"
+      }`
+    );
 
-    const refundResult = await directUsdcService.refundFromTreasury(to, refundAmount);
+    // Verify that treasury received the USDC for this tx before refunding
+    const verification = await directUsdcService.verifyTransferInTransaction(
+      txHash,
+      from,
+      config.treasuryAddress,
+      totalPaid
+    );
+    if (!verification.verified) {
+      return res.status(400).json({
+        success: false,
+        error: `USDC not received by treasury for tx ${txHash}: ${
+          verification.error || "verification failed"
+        }`,
+      } as APIResponse);
+    }
+
+    const refundResult = await directUsdcService.refundFromTreasury(
+      from,
+      refundAmount
+    );
     if (!refundResult.success) {
       return res.status(400).json({
         success: false,
-        error: refundResult.error || 'Refund failed'
+        error: refundResult.error || "Refund failed",
       } as APIResponse);
     }
 
@@ -272,16 +354,19 @@ router.post('/refund', async (req: Request, res: Response) => {
         transactionHash: refundResult.transactionHash,
         to,
         amount: refundAmount,
-        reason: reason || 'manual_refund'
+        networkFee: networkFee || "0",
+        totalPaid: totalPaid || refundAmount,
+        from,
+        txHash,
+        reason: reason || "manual_refund",
       },
-      message: 'Refund executed successfully'
+      message: "Refund executed successfully",
     } as APIResponse);
-
   } catch (error) {
-    console.error('Refund endpoint error:', error);
+    console.error("Refund endpoint error:", error);
     return res.status(500).json({
       success: false,
-      error: 'Internal server error during refund'
+      error: "Internal server error during refund",
     } as APIResponse);
   }
 });
@@ -290,14 +375,14 @@ router.post('/refund', async (req: Request, res: Response) => {
  * GET /api/payments/status/:transactionHash
  * Gets the status of a payment by transaction hash
  */
-router.get('/status/:transactionHash', async (req: Request, res: Response) => {
+router.get("/status/:transactionHash", async (req: Request, res: Response) => {
   try {
     const { transactionHash } = req.params;
 
-    if (!transactionHash || !transactionHash.startsWith('0x')) {
+    if (!transactionHash || !transactionHash.startsWith("0x")) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid transaction hash'
+        error: "Invalid transaction hash",
       } as APIResponse);
     }
 
@@ -310,15 +395,14 @@ router.get('/status/:transactionHash', async (req: Request, res: Response) => {
       success: true,
       data: {
         transactionHash,
-        ...status
-      }
+        ...status,
+      },
     } as APIResponse);
-
   } catch (error) {
-    console.error('Payment status check error:', error);
+    console.error("Payment status check error:", error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error during status check'
+      error: "Internal server error during status check",
     } as APIResponse);
   }
 });
@@ -327,55 +411,59 @@ router.get('/status/:transactionHash', async (req: Request, res: Response) => {
  * GET /api/payments/payout/status/:transferId
  * Gets the status of an INR payout transfer
  */
-router.get('/payout/status/:transferId', async (req: Request, res: Response) => {
-  try {
-    const { transferId } = req.params;
+router.get(
+  "/payout/status/:transferId",
+  async (req: Request, res: Response) => {
+    try {
+      const { transferId } = req.params;
 
-    if (!transferId) {
-      return res.status(400).json({
+      if (!transferId) {
+        return res.status(400).json({
+          success: false,
+          error: "Transfer ID is required",
+        } as APIResponse);
+      }
+
+      console.log("Getting payout status for transfer ID:", transferId);
+
+      // Initialize Cashfree service
+      const cashfreeService = new CashfreeService();
+
+      // Get transfer status
+      const statusResponse = await cashfreeService.getTransferStatus(
+        transferId
+      );
+
+      // Return response
+      return res.status(200).json({
+        success: statusResponse.status === "SUCCESS",
+        status: statusResponse.status,
+        message: statusResponse.message,
+        transferDetails: statusResponse.data,
+        requestedAt: new Date().toISOString(),
+      } as APIResponse);
+    } catch (error) {
+      console.error("Payout status check error:", error);
+      res.status(500).json({
         success: false,
-        error: 'Transfer ID is required'
+        error: "Internal server error during payout status check",
       } as APIResponse);
     }
-
-    console.log('Getting payout status for transfer ID:', transferId);
-
-    // Initialize Cashfree service
-    const cashfreeService = new CashfreeService();
-
-    // Get transfer status
-    const statusResponse = await cashfreeService.getTransferStatus(transferId);
-
-    // Return response
-    return res.status(200).json({
-      success: statusResponse.status === 'SUCCESS',
-      status: statusResponse.status,
-      message: statusResponse.message,
-      transferDetails: statusResponse.data,
-      requestedAt: new Date().toISOString(),
-    } as APIResponse);
-
-  } catch (error) {
-    console.error('Payout status check error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error during payout status check'
-    } as APIResponse);
   }
-});
+);
 
 /**
  * POST /api/payments/process-payout
  * Processes INR payout after successful USDC transaction
  */
-router.post('/process-payout', async (req: Request, res: Response) => {
+router.post("/process-payout", async (req: Request, res: Response) => {
   try {
     // Validate API key
-    const apiKey = req.headers['x-api-key'] as string;
+    const apiKey = req.headers["x-api-key"] as string;
     if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
-        error: 'Invalid API key'
+        error: "Invalid API key",
       } as APIResponse);
     }
 
@@ -385,11 +473,12 @@ router.post('/process-payout', async (req: Request, res: Response) => {
     if (!transactionHash || !upiMerchantDetails || !chainId) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: transactionHash, upiMerchantDetails, chainId'
+        error:
+          "Missing required fields: transactionHash, upiMerchantDetails, chainId",
       } as APIResponse);
     }
 
-    console.log('Processing INR payout for transaction:', transactionHash);
+    console.log("Processing INR payout for transaction:", transactionHash);
 
     // Create payment orchestrator for the specified chain
     const orchestrator = new PaymentOrchestrator(chainId);
@@ -403,27 +492,29 @@ router.post('/process-payout', async (req: Request, res: Response) => {
     };
 
     // Process just the payout part
-    const result = await orchestrator.processINRPayoutOnly(payoutRequest, transactionHash);
+    const result = await orchestrator.processINRPayoutOnly(
+      payoutRequest,
+      transactionHash
+    );
 
     if (result.success) {
       res.status(200).json({
         success: true,
         data: result,
-        message: 'INR payout processed successfully'
+        message: "INR payout processed successfully",
       } as APIResponse);
     } else {
       res.status(400).json({
         success: false,
         error: result.error,
-        data: result
+        data: result,
       } as APIResponse);
     }
-
   } catch (error) {
-    console.error('Payout processing error:', error);
+    console.error("Payout processing error:", error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error during payout processing'
+      error: "Internal server error during payout processing",
     } as APIResponse);
   }
 });
@@ -432,37 +523,39 @@ router.post('/process-payout', async (req: Request, res: Response) => {
  * GET /api/payments/explorer/:chainId/:txHash
  * Redirect to blockchain explorer for transaction
  */
-router.get('/explorer/:chainId/:txHash', async (req: Request, res: Response) => {
-  try {
-    const { chainId, txHash } = req.params;
+router.get(
+  "/explorer/:chainId/:txHash",
+  async (req: Request, res: Response) => {
+    try {
+      const { chainId, txHash } = req.params;
 
-    if (!chainId || !txHash) {
-      return res.status(400).json({
+      if (!chainId || !txHash) {
+        return res.status(400).json({
+          success: false,
+          error: "Chain ID and transaction hash are required",
+        } as APIResponse);
+      }
+
+      const chainIdNum = parseInt(chainId, 10);
+      const explorerUrl = getExplorerUrl(chainIdNum, txHash);
+
+      if (explorerUrl === "#") {
+        return res.status(400).json({
+          success: false,
+          error: "Unsupported chain ID",
+        } as APIResponse);
+      }
+
+      // Redirect to the explorer
+      res.redirect(302, explorerUrl);
+    } catch (error: any) {
+      console.error("Explorer redirect error:", error);
+      res.status(500).json({
         success: false,
-        error: 'Chain ID and transaction hash are required'
+        error: "Internal server error during explorer redirect",
       } as APIResponse);
     }
-
-    const chainIdNum = parseInt(chainId, 10);
-    const explorerUrl = getExplorerUrl(chainIdNum, txHash);
-
-    if (explorerUrl === '#') {
-      return res.status(400).json({
-        success: false,
-        error: 'Unsupported chain ID'
-      } as APIResponse);
-    }
-
-    // Redirect to the explorer
-    res.redirect(302, explorerUrl);
-
-  } catch (error: any) {
-    console.error('Explorer redirect error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error during explorer redirect'
-    } as APIResponse);
   }
-});
+);
 
 export default router;
