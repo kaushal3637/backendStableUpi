@@ -64,7 +64,7 @@ export const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000', // Development
       'http://localhost:3001',
-      'https://stable-upi.vercel.app', // Production
+      'https://spendinindia.vercel.app', // Production
     ]; 
 
     // Allow requests with no origin (mobile apps, etc.)
@@ -78,5 +78,5 @@ export const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'x-api-key']
 };

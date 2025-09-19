@@ -15,9 +15,11 @@ export class USDCService {
     // USDC Contract ABI (minimal)
     const usdcAbi = [
       'function transfer(address to, uint256 amount) external returns (bool)',
+      'function transferFrom(address from, address to, uint256 amount) external returns (bool)',
       'function balanceOf(address account) external view returns (uint256)',
       'function decimals() external view returns (uint8)',
-      'function approve(address spender, uint256 amount) external returns (bool)'
+      'function approve(address spender, uint256 amount) external returns (bool)',
+      'function allowance(address owner, address spender) external view returns (uint256)'
     ];
 
     this.usdcContract = new ethers.Contract(
@@ -67,6 +69,53 @@ export class USDCService {
 
     } catch (error) {
       console.error('USDC transfer failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+  
+
+  /**
+   * Refunds USDC from treasury (backend signer) to a recipient
+   */
+  public async refundFromTreasury(to: string, amount: string): Promise<USDCTansferResponse> {
+    try {
+      if (!ethers.isAddress(to)) {
+        throw new Error('Invalid recipient address');
+      }
+
+      const amountWei = ethers.parseUnits(amount, 6);
+      if (amountWei <= 0n) {
+        throw new Error('Invalid refund amount');
+      }
+
+      // Use transferFrom from treasury to recipient. Assumes treasury approved backend signer.
+      const treasuryAddress = config.treasuryAddress;
+      const spender = await this.signer.getAddress();
+
+      // Optional: check allowance
+      const currentAllowance = await this.usdcContract.allowance(treasuryAddress, spender);
+      if (currentAllowance < amountWei) {
+        throw new Error('Insufficient allowance from treasury to backend signer for refund');
+      }
+
+      // Execute transferFrom using backend signer as spender
+      const tx = await this.usdcContract.transferFrom(treasuryAddress, to, amountWei);
+      const receipt = await tx.wait();
+
+      if (!receipt || receipt.status !== 1) {
+        throw new Error('USDC refund transfer failed');
+      }
+
+      return {
+        success: true,
+        transactionHash: receipt.hash
+      };
+
+    } catch (error) {
+      console.error('USDC refund failed:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred'

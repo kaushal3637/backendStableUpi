@@ -3,6 +3,7 @@ import Joi from 'joi';
 import { ERC7702Request, APIResponse, EIP7702SponsoredRequest, USDCMetaTransactionRequest, PrepareMetaTransactionRequest } from '../types';
 import { PaymentOrchestrator } from '../services/paymentOrchestrator';
 import { USDCMetaTransactionService } from '../services/usdcMetaTransactionService';
+import { USDCService } from '../services/usdcService';
 import { CashfreeService } from '../services/cashfreeService';
 import { config } from '../services/config';
 import { getExplorerUrl } from '../utils/chains';
@@ -223,6 +224,64 @@ router.post('/process', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Internal server error during payment processing'
+    } as APIResponse);
+  }
+});
+
+/**
+ * POST /api/payments/refund
+ * Triggers a refund to the original payer when UPI payout fails
+ * Body: { chainId: number, to: string, amount: string, reason?: string }
+ */
+router.post('/refund', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== config.apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    const { chainId, to, amount, reason } = req.body || {};
+    if (!chainId || !to || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: chainId, to, amount'
+      } as APIResponse);
+    }
+
+    // Use USDCService with backend signer to perform transferFrom from treasury
+    const directUsdcService = new USDCService(chainId);
+
+    const refundAmount = amount; // Assume amount already accounts for fees if desired
+    console.log(`Manual refund requested: chainId=${chainId} to=${to} amount=${refundAmount} reason=${reason || 'n/a'}`);
+
+    const refundResult = await directUsdcService.refundFromTreasury(to, refundAmount);
+    if (!refundResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: refundResult.error || 'Refund failed'
+      } as APIResponse);
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        transactionHash: refundResult.transactionHash,
+        to,
+        amount: refundAmount,
+        reason: reason || 'manual_refund'
+      },
+      message: 'Refund executed successfully'
+    } as APIResponse);
+
+  } catch (error) {
+    console.error('Refund endpoint error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error during refund'
     } as APIResponse);
   }
 });

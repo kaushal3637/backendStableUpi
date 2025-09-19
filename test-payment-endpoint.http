@@ -36,3 +36,15 @@ X-API-Key: your_development_api_key_here
 
 ### Check Payment Status
 GET http://localhost:3001/api/payments/status/0x123456789012345678901234567890123456789012345678901234567890
+
+### Trigger Refund (Manual Test)
+POST http://localhost:3001/api/payments/refund
+Content-Type: application/json
+X-API-Key: your_development_api_key_here
+
+{
+  "chainId": 421614,
+  "to": "0x1234567890123456789012345678901234567890",
+  "amount": "5.000000",
+  "reason": "test_refund_manual"
+}

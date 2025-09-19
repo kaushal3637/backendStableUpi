@@ -222,8 +222,59 @@ export class PaymentOrchestrator {
         }
       } catch (payoutError) {
         console.error('INR payout initiation failed:', payoutError);
-        // Don't fail the entire transaction for payout issues
-        console.warn('USDC transaction succeeded but INR payout failed - manual intervention may be required');
+        // Proceed to refund logic
+        console.warn('USDC transaction succeeded but INR payout failed - attempting refund');
+      }
+
+      // If payout failed, attempt refund of USDC (excluding network fee)
+      if (!payoutTransferId) {
+        try {
+          const refundFeeBps = parseInt(process.env.REFUND_FEE_BPS || '0', 10); // e.g., 50 = 0.5%
+          const originalUsdcAmount = request.metaTransactionRequest
+            ? parseFloat(request.metaTransactionRequest.value)
+            : parseFloat(this.extractUSDCAmount(request.upiMerchantDetails));
+
+          const fee = (originalUsdcAmount * refundFeeBps) / 10000;
+          const refundAmount = Math.max(originalUsdcAmount - fee, 0);
+
+          // Determine refund recipient: for meta-tx, refund to original sender; otherwise fallback to userOp sender if present
+          const refundTo = request.metaTransactionRequest?.from || request.userOp?.sender;
+          if (!refundTo) {
+            throw new Error('Unable to determine refund recipient');
+          }
+
+          console.log(`🔁 Initiating USDC refund: amount=${refundAmount.toFixed(6)} to=${refundTo} (fee=${fee.toFixed(6)} USDC)`);
+          const refundResult = await this.usdcService.refundFromTreasury(refundTo, refundAmount.toFixed(6));
+
+          if (refundResult.success) {
+            console.log(`✅ Refund successful. Refund tx: ${refundResult.transactionHash}`);
+            return {
+              success: false,
+              status: 'refunded',
+              error: 'UPI payout failed; USDC refunded (minus fee)',
+              refund: {
+                amount: refundAmount.toFixed(6),
+                fee: fee.toFixed(6),
+                transactionHash: refundResult.transactionHash,
+                to: refundTo
+              }
+            } as ERC7702Response;
+          } else {
+            console.error('Refund failed:', refundResult.error);
+            return {
+              success: false,
+              status: 'failed',
+              error: `UPI payout failed and refund failed: ${refundResult.error}`
+            } as ERC7702Response;
+          }
+        } catch (refundError: any) {
+          console.error('Refund processing error:', refundError);
+          return {
+            success: false,
+            status: 'failed',
+            error: `UPI payout failed and refund error: ${refundError.message || refundError}`
+          } as ERC7702Response;
+        }
       }
 
       // Return success response with complete transaction details

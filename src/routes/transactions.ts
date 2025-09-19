@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { config } from '../services/config';
 import Joi from 'joi';
 import mongoose from 'mongoose';
 import Transaction from '../models/Transaction';
@@ -49,7 +50,7 @@ router.post('/store', async (req: Request, res: Response) => {
   try {
     // Validate API key
     const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
         error: 'Invalid API key'
@@ -119,7 +120,7 @@ router.put('/update', async (req: Request, res: Response) => {
   try {
     // Validate API key
     const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
         error: 'Invalid API key'
@@ -198,7 +199,7 @@ router.get('/:transactionId', async (req: Request, res: Response) => {
   try {
     // Validate API key
     const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
         error: 'Invalid API key'
@@ -268,7 +269,7 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     // Validate API key
     const apiKey = req.headers['x-api-key'] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== config.apiKey) {
       return res.status(401).json({
         success: false,
         error: 'Invalid API key'
