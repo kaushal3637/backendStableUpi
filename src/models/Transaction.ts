@@ -47,5 +47,9 @@ const TransactionSchema = new mongoose.Schema({
 });
 
 TransactionSchema.index({ txnHash: 1 }, { unique: true, sparse: true });
+TransactionSchema.index({ walletAddress: 1 });
+TransactionSchema.index({ walletAddress: 1, scannedAt: -1 });
+TransactionSchema.index({ upiId: 1, scannedAt: -1 });
+TransactionSchema.index({ isSuccess: 1, scannedAt: -1 });
 
 export default mongoose.models.UpiTransaction || mongoose.model('UpiTransaction', TransactionSchema, 'UpiTransactions');

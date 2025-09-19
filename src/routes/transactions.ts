@@ -24,7 +24,7 @@ const transactionStoreSchema = Joi.object({
   merchantName: Joi.string().optional(),
   totalUsdToPay: Joi.string().required(),
   inrAmount: Joi.string().required(),
-  walletAddress: Joi.string().optional(),
+  walletAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).optional().allow(''),
   txnHash: Joi.string().optional(),
   chainId: Joi.number().valid(421614, 11155111).required(),
   isSuccess: Joi.boolean().default(false)
@@ -38,7 +38,7 @@ const transactionUpdateSchema = Joi.object({
   payoutAmount: Joi.number().optional(),
   payoutRemarks: Joi.string().optional(),
   isSuccess: Joi.boolean().optional(),
-  walletAddress: Joi.string().optional()
+  walletAddress: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).optional().allow('')
 });
 
 /**
@@ -95,6 +95,8 @@ router.post('/store', async (req: Request, res: Response) => {
         merchantName: savedTransaction.merchantName,
         totalUsdToPay: savedTransaction.totalUsdToPay,
         inrAmount: savedTransaction.inrAmount,
+        walletAddress: savedTransaction.walletAddress,
+        txnHash: savedTransaction.txnHash,
         chainId: savedTransaction.chainId,
         isSuccess: savedTransaction.isSuccess,
         scannedAt: savedTransaction.scannedAt
@@ -285,6 +287,7 @@ router.get('/', async (req: Request, res: Response) => {
       chainId,
       isSuccess,
       payoutStatus,
+      walletAddress,
       startDate,
       endDate
     } = req.query;
@@ -296,6 +299,7 @@ router.get('/', async (req: Request, res: Response) => {
     if (chainId) filter.chainId = parseInt(chainId as string);
     if (isSuccess !== undefined) filter.isSuccess = isSuccess === 'true';
     if (payoutStatus) filter.payoutStatus = payoutStatus;
+    if (walletAddress) filter.walletAddress = walletAddress;
 
     // Date range filter
     if (startDate || endDate) {
@@ -344,6 +348,259 @@ router.get('/', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Internal server error during transactions retrieval'
+    } as APIResponse);
+  }
+});
+
+/**
+ * GET /api/transactions/wallet/:walletAddress
+ * Get transactions by wallet address with enhanced filtering
+ */
+router.get('/wallet/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    // Connect to database
+    await connectDB();
+
+    const { walletAddress } = req.params;
+    const {
+      limit = 50,
+      offset = 0,
+      chainId,
+      isSuccess,
+      payoutStatus,
+      startDate,
+      endDate,
+      sortBy = 'scannedAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Validate wallet address format
+    if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid wallet address format'
+      } as APIResponse);
+    }
+
+    // Build filter
+    const filter: any = { walletAddress };
+
+    if (chainId) filter.chainId = parseInt(chainId as string);
+    if (isSuccess !== undefined) filter.isSuccess = isSuccess === 'true';
+    if (payoutStatus) filter.payoutStatus = payoutStatus;
+
+    // Date range filter
+    if (startDate || endDate) {
+      filter.scannedAt = {};
+      if (startDate) filter.scannedAt.$gte = new Date(startDate as string);
+      if (endDate) filter.scannedAt.$lte = new Date(endDate as string);
+    }
+
+    // Build sort object
+    const sort: any = {};
+    sort[sortBy as string] = sortOrder === 'desc' ? -1 : 1;
+
+    const transactions = await Transaction.find(filter)
+      .sort(sort)
+      .limit(parseInt(limit as string))
+      .skip(parseInt(offset as string));
+
+    const totalCount = await Transaction.countDocuments(filter);
+
+    // Calculate wallet statistics
+    const walletStats = await Transaction.aggregate([
+      { $match: { walletAddress } },
+      {
+        $group: {
+          _id: null,
+          totalTransactions: { $sum: 1 },
+          successfulTransactions: {
+            $sum: { $cond: [{ $eq: ['$isSuccess', true] }, 1, 0] }
+          },
+          totalUsdSpent: {
+            $sum: { $toDouble: '$totalUsdToPay' }
+          },
+          totalInrSpent: {
+            $sum: { $toDouble: '$inrAmount' }
+          },
+          firstTransaction: { $min: '$scannedAt' },
+          lastTransaction: { $max: '$scannedAt' }
+        }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        walletAddress,
+        transactions: transactions.map(tx => ({
+          transactionId: tx._id.toString(),
+          upiId: tx.upiId,
+          merchantName: tx.merchantName,
+          totalUsdToPay: tx.totalUsdToPay,
+          inrAmount: tx.inrAmount,
+          walletAddress: tx.walletAddress,
+          txnHash: tx.txnHash,
+          payoutTransferId: tx.payoutTransferId,
+          payoutStatus: tx.payoutStatus,
+          payoutAmount: tx.payoutAmount,
+          chainId: tx.chainId,
+          isSuccess: tx.isSuccess,
+          scannedAt: tx.scannedAt,
+          paidAt: tx.paidAt
+        })),
+        statistics: walletStats[0] || {
+          totalTransactions: 0,
+          successfulTransactions: 0,
+          totalUsdSpent: 0,
+          totalInrSpent: 0,
+          firstTransaction: null,
+          lastTransaction: null
+        },
+        pagination: {
+          total: totalCount,
+          limit: parseInt(limit as string),
+          offset: parseInt(offset as string)
+        }
+      },
+      message: 'Wallet transactions retrieved successfully'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Get wallet transactions error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during wallet transactions retrieval'
+    } as APIResponse);
+  }
+});
+
+/**
+ * GET /api/transactions/stats/overview
+ * Get transaction statistics overview
+ */
+router.get('/stats/overview', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    // Connect to database
+    await connectDB();
+
+    const { walletAddress, startDate, endDate } = req.query;
+
+    // Build base filter
+    const baseFilter: any = {};
+    if (walletAddress) baseFilter.walletAddress = walletAddress;
+    if (startDate || endDate) {
+      baseFilter.scannedAt = {};
+      if (startDate) baseFilter.scannedAt.$gte = new Date(startDate as string);
+      if (endDate) baseFilter.scannedAt.$lte = new Date(endDate as string);
+    }
+
+    // Get comprehensive statistics
+    const stats = await Transaction.aggregate([
+      { $match: baseFilter },
+      {
+        $group: {
+          _id: null,
+          totalTransactions: { $sum: 1 },
+          successfulTransactions: {
+            $sum: { $cond: [{ $eq: ['$isSuccess', true] }, 1, 0] }
+          },
+          failedTransactions: {
+            $sum: { $cond: [{ $eq: ['$isSuccess', false] }, 1, 0] }
+          },
+          totalUsdVolume: {
+            $sum: { $toDouble: '$totalUsdToPay' }
+          },
+          totalInrVolume: {
+            $sum: { $toDouble: '$inrAmount' }
+          },
+          uniqueWallets: { $addToSet: '$walletAddress' },
+          uniqueMerchants: { $addToSet: '$upiId' },
+          firstTransaction: { $min: '$scannedAt' },
+          lastTransaction: { $max: '$scannedAt' }
+        }
+      },
+      {
+        $project: {
+          totalTransactions: 1,
+          successfulTransactions: 1,
+          failedTransactions: 1,
+          successRate: {
+            $multiply: [
+              { $divide: ['$successfulTransactions', '$totalTransactions'] },
+              100
+            ]
+          },
+          totalUsdVolume: 1,
+          totalInrVolume: 1,
+          uniqueWalletsCount: { $size: '$uniqueWallets' },
+          uniqueMerchantsCount: { $size: '$uniqueMerchants' },
+          firstTransaction: 1,
+          lastTransaction: 1
+        }
+      }
+    ]);
+
+    // Get chain distribution
+    const chainStats = await Transaction.aggregate([
+      { $match: baseFilter },
+      {
+        $group: {
+          _id: '$chainId',
+          count: { $sum: 1 },
+          volume: { $sum: { $toDouble: '$totalUsdToPay' } }
+        }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        overview: stats[0] || {
+          totalTransactions: 0,
+          successfulTransactions: 0,
+          failedTransactions: 0,
+          successRate: 0,
+          totalUsdVolume: 0,
+          totalInrVolume: 0,
+          uniqueWalletsCount: 0,
+          uniqueMerchantsCount: 0,
+          firstTransaction: null,
+          lastTransaction: null
+        },
+        chainDistribution: chainStats,
+        filters: {
+          walletAddress: walletAddress || null,
+          startDate: startDate || null,
+          endDate: endDate || null
+        }
+      },
+      message: 'Transaction statistics retrieved successfully'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Get transaction stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during statistics retrieval'
     } as APIResponse);
   }
 });
