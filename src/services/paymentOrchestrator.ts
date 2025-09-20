@@ -4,6 +4,7 @@ import { USDCService } from './usdcService';
 import { EIP7702Service } from './eip7702Service';
 import { USDCMetaTransactionService } from './usdcMetaTransactionService';
 import { CashfreeService, CashfreeTransferRequest } from './cashfreeService';
+import { AutoBeneficiaryService } from './autoBeneficiaryService';
 import { config } from './config';
 
 export class PaymentOrchestrator {
@@ -12,6 +13,7 @@ export class PaymentOrchestrator {
   private eip7702Service: EIP7702Service;
   private usdcMetaTransactionService: USDCMetaTransactionService;
   private cashfreeService: CashfreeService;
+  private autoBeneficiaryService: AutoBeneficiaryService;
 
   constructor(chainId: number) {
     this.userOpService = new UserOpService(chainId);
@@ -19,6 +21,7 @@ export class PaymentOrchestrator {
     this.eip7702Service = new EIP7702Service(chainId);
     this.usdcMetaTransactionService = new USDCMetaTransactionService(chainId);
     this.cashfreeService = new CashfreeService();
+    this.autoBeneficiaryService = new AutoBeneficiaryService();
   }
 
   /**
@@ -195,7 +198,7 @@ export class PaymentOrchestrator {
           const transferRequest: CashfreeTransferRequest = {
             transferId,
             transferAmount: inrAmount,
-            beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
+            beneficiaryId: await this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
             beneficiaryVpa: request.upiMerchantDetails.pa,
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
@@ -411,23 +414,27 @@ export class PaymentOrchestrator {
 
   /**
    * Extracts beneficiary ID from UPI merchant details
-   * For now, we'll use a simple mapping - in production you'd have a database lookup
+   * Always creates a fresh beneficiary (skips database check)
    */
-  private extractBeneficiaryId(upiDetails: UPIMerchantDetails): string {
-    // For demo purposes, use a hardcoded mapping for test UPI IDs
-    // In production, you'd query your database to find the beneficiary ID for the UPI ID
-
+  private async extractBeneficiaryId(upiDetails: UPIMerchantDetails): Promise<string> {
     const upiId = upiDetails.pa;
 
-    // Test beneficiary mappings
-    const testMappings: { [key: string]: string } = {
-      'success@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
-      'merchant@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
-      'testuser@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
-    };
+    if (!upiId) {
+      throw new Error('UPI ID is required to process payment');
+    }
 
-    // Return mapped beneficiary ID or generate one based on UPI ID
-    return testMappings[upiId] || `bene_${upiId.replace('@', '_').replace(/[^a-zA-Z0-9_]/g, '')}`;
+    console.log('🆕 Creating fresh beneficiary for UPI ID (skipping DB check):', upiId);
+
+    // Always create a new beneficiary automatically (skip database check)
+    const autoBeneficiaryResult = await this.autoBeneficiaryService.createBeneficiaryFromUPI(upiDetails);
+
+    if (!autoBeneficiaryResult.success) {
+      console.error('❌ Failed to create auto-beneficiary:', autoBeneficiaryResult.error);
+      throw new Error(`Failed to create beneficiary: ${autoBeneficiaryResult.error}`);
+    }
+
+    console.log('✅ Fresh auto-beneficiary created successfully:', autoBeneficiaryResult.beneficiaryId);
+    return autoBeneficiaryResult.beneficiaryId!;
   }
 
   /**
@@ -452,7 +459,7 @@ export class PaymentOrchestrator {
           const transferRequest: CashfreeTransferRequest = {
             transferId,
             transferAmount: inrAmount,
-            beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
+            beneficiaryId: await this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
             beneficiaryVpa: request.upiMerchantDetails.pa,
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
