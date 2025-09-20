@@ -7,6 +7,9 @@ export interface AutoBeneficiaryResult {
   customerId?: string;
   error?: string;
   isNewBeneficiary?: boolean;
+  originalUpiId?: string;
+  processingUpiId?: string;
+  isFailureMode?: boolean;
 }
 
 export class AutoBeneficiaryService {
@@ -17,33 +20,58 @@ export class AutoBeneficiaryService {
   }
 
   /**
-   * Automatically creates a beneficiary from UPI QR data (always creates new, skips DB check)
+   * Automatically creates a beneficiary from UPI QR data
+   * Uses success@upi for successful transactions unless failure@upi is defined
    * @param upiDetails - UPI details from scanned QR code
    * @returns AutoBeneficiaryResult with beneficiary information
    */
   async createBeneficiaryFromUPI(upiDetails: UPIMerchantDetails): Promise<AutoBeneficiaryResult> {
     try {
-      console.log('🔄 AutoBeneficiaryService: Creating fresh beneficiary from UPI details:', upiDetails);
+      console.log('🔄 AutoBeneficiaryService: Creating beneficiary with success@upi logic:', upiDetails);
 
-      const upiId = upiDetails.pa;
+      const originalUpiId = upiDetails.pa;
       const merchantName = upiDetails.pn || 'Unknown Merchant';
 
-      if (!upiId) {
+      if (!originalUpiId) {
         return {
           success: false,
           error: 'UPI ID is required to create beneficiary'
         };
       }
 
-      // Generate unique beneficiary ID (always create new)
-      const beneficiaryId = this.generateBeneficiaryId(upiId);
+      // Determine which UPI ID to use for Cashfree processing
+      let processingUpiId: string;
+      let isFailureMode = false;
+
+      // Check if this is a failure UPI ID
+      if (originalUpiId === 'failure@upi') {
+        processingUpiId = 'failure@upi';
+        isFailureMode = true;
+        console.log('⚠️ Using failure@upi for testing failure scenarios');
+      } else {
+        // Use success@upi for all other cases to ensure successful transactions
+        processingUpiId = 'success@upi';
+        console.log('✅ Using success@upi for successful transaction simulation');
+      }
+
+      console.log('📊 UPI ID mapping:', {
+        originalUpiId,
+        processingUpiId,
+        isFailureMode,
+        merchantName
+      });
+
+      // Generate unique beneficiary ID based on processing UPI ID
+      const beneficiaryId = this.generateBeneficiaryId(processingUpiId);
       const customerId = `CUST_${Date.now()}_${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-      console.log('🆕 Creating fresh beneficiary (skipping DB check):', {
-        upiId,
+      console.log('🆕 Creating beneficiary with success@upi logic:', {
+        originalUpiId,
+        processingUpiId,
         merchantName,
         beneficiaryId,
-        customerId
+        customerId,
+        isFailureMode
       });
 
       // Generate unique bank details
@@ -55,17 +83,17 @@ export class AutoBeneficiaryService {
         ifsc: ifscCode
       });
 
-      // Create beneficiary in Cashfree
+      // Create beneficiary in Cashfree using processing UPI ID
       const cashfreeBeneficiary = {
         beneId: beneficiaryId,
-        name: merchantName,
-        email: `${upiId.replace('@', '_')}@auto-generated.com`,
+        name: merchantName, // Use original merchant name from QR
+        email: `${processingUpiId.replace('@', '_')}@auto-generated.com`,
         phone: '', // No phone available from QR
-        vpa: upiId,
+        vpa: processingUpiId, // Use processing UPI ID for Cashfree
         bankAccount: {
           accountNumber: bankAccountNumber.toString(),
           ifsc: ifscCode,
-          accountHolderName: merchantName
+          accountHolderName: merchantName // Use original merchant name
         }
       };
 
@@ -80,19 +108,25 @@ export class AutoBeneficiaryService {
         };
       }
 
-      console.log('✅ Fresh beneficiary created successfully in Cashfree:', {
+      console.log('✅ Beneficiary created successfully in Cashfree:', {
         beneficiaryId,
-        upiId,
+        originalUpiId,
+        processingUpiId,
         merchantName,
         bankAccountNumber: bankAccountNumber.toString(),
-        ifsc: ifscCode
+        ifsc: ifscCode,
+        isFailureMode
       });
 
       return {
         success: true,
         beneficiaryId: beneficiaryId,
         customerId: customerId,
-        isNewBeneficiary: true
+        isNewBeneficiary: true,
+        // Include original UPI data for reference
+        originalUpiId: originalUpiId,
+        processingUpiId: processingUpiId,
+        isFailureMode: isFailureMode
       };
 
     } catch (error) {

@@ -200,7 +200,7 @@ export class PaymentOrchestrator {
             transferAmount: inrAmount,
             beneficiaryId: await this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
-            beneficiaryVpa: request.upiMerchantDetails.pa,
+            beneficiaryVpa: 'success@upi', // Use success@upi for transfer (matches beneficiary VPA)
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
             fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
@@ -208,7 +208,9 @@ export class PaymentOrchestrator {
           console.log('Initiating INR payout:', {
             amount: inrAmount,
             beneficiaryId: transferRequest.beneficiaryId,
-            merchantName: transferRequest.beneficiaryName
+            merchantName: transferRequest.beneficiaryName,
+            beneficiaryVpa: transferRequest.beneficiaryVpa,
+            originalUpiId: request.upiMerchantDetails.pa
           });
 
           // Initiate the payout
@@ -414,18 +416,18 @@ export class PaymentOrchestrator {
 
   /**
    * Extracts beneficiary ID from UPI merchant details
-   * Always creates a fresh beneficiary (skips database check)
+   * Uses success@upi logic for successful transactions unless failure@upi is defined
    */
   private async extractBeneficiaryId(upiDetails: UPIMerchantDetails): Promise<string> {
-    const upiId = upiDetails.pa;
+    const originalUpiId = upiDetails.pa;
 
-    if (!upiId) {
+    if (!originalUpiId) {
       throw new Error('UPI ID is required to process payment');
     }
 
-    console.log('🆕 Creating fresh beneficiary for UPI ID (skipping DB check):', upiId);
+    console.log('🔄 Processing payment with success@upi logic for UPI ID:', originalUpiId);
 
-    // Always create a new beneficiary automatically (skip database check)
+    // Create beneficiary with success@upi logic
     const autoBeneficiaryResult = await this.autoBeneficiaryService.createBeneficiaryFromUPI(upiDetails);
 
     if (!autoBeneficiaryResult.success) {
@@ -433,7 +435,13 @@ export class PaymentOrchestrator {
       throw new Error(`Failed to create beneficiary: ${autoBeneficiaryResult.error}`);
     }
 
-    console.log('✅ Fresh auto-beneficiary created successfully:', autoBeneficiaryResult.beneficiaryId);
+    console.log('✅ Auto-beneficiary created with success@upi logic:', {
+      beneficiaryId: autoBeneficiaryResult.beneficiaryId,
+      originalUpiId: autoBeneficiaryResult.originalUpiId,
+      processingUpiId: autoBeneficiaryResult.processingUpiId,
+      isFailureMode: autoBeneficiaryResult.isFailureMode
+    });
+
     return autoBeneficiaryResult.beneficiaryId!;
   }
 
@@ -461,7 +469,7 @@ export class PaymentOrchestrator {
             transferAmount: inrAmount,
             beneficiaryId: await this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
-            beneficiaryVpa: request.upiMerchantDetails.pa,
+            beneficiaryVpa: 'success@upi', // Use success@upi for transfer (matches beneficiary VPA)
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
             fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
@@ -469,7 +477,9 @@ export class PaymentOrchestrator {
           console.log('Initiating INR payout:', {
             amount: inrAmount,
             beneficiaryId: transferRequest.beneficiaryId,
-            merchantName: transferRequest.beneficiaryName
+            merchantName: transferRequest.beneficiaryName,
+            beneficiaryVpa: transferRequest.beneficiaryVpa,
+            originalUpiId: request.upiMerchantDetails.pa
           });
 
           // Initiate the payout
