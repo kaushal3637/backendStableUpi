@@ -45,8 +45,11 @@ export class ConfigService {
       merchantId: process.env.UPI_MERCHANT_ID || '',
     };
 
+    if (!process.env.CHAINALYSIS_API_KEY) {
+      throw new Error('CHAINALYSIS_API_KEY is not set');
+    }
     // Chainalysis Sanctions API Configuration
-    this.chainalysisApiKey = process.env.CHAINALYSIS_API_KEY || '';
+    this.chainalysisApiKey = process.env.CHAINALYSIS_API_KEY!;
     this.chainalysisApiUrl = 'https://public.chainalysis.com/api/v1';
 
     // Get RPC API key (try multiple environment variable names for compatibility)
