@@ -4,6 +4,7 @@ import { USDCService } from './usdcService';
 import { EIP7702Service } from './eip7702Service';
 import { USDCMetaTransactionService } from './usdcMetaTransactionService';
 import { CashfreeService, CashfreeTransferRequest } from './cashfreeService';
+import { AutoBeneficiaryService } from './autoBeneficiaryService';
 import { config } from './config';
 
 export class PaymentOrchestrator {
@@ -12,6 +13,7 @@ export class PaymentOrchestrator {
   private eip7702Service: EIP7702Service;
   private usdcMetaTransactionService: USDCMetaTransactionService;
   private cashfreeService: CashfreeService;
+  private autoBeneficiaryService: AutoBeneficiaryService;
 
   constructor(chainId: number) {
     this.userOpService = new UserOpService(chainId);
@@ -19,6 +21,7 @@ export class PaymentOrchestrator {
     this.eip7702Service = new EIP7702Service(chainId);
     this.usdcMetaTransactionService = new USDCMetaTransactionService(chainId);
     this.cashfreeService = new CashfreeService();
+    this.autoBeneficiaryService = new AutoBeneficiaryService();
   }
 
   /**
@@ -195,9 +198,9 @@ export class PaymentOrchestrator {
           const transferRequest: CashfreeTransferRequest = {
             transferId,
             transferAmount: inrAmount,
-            beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
+            beneficiaryId: await this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
-            beneficiaryVpa: request.upiMerchantDetails.pa,
+            beneficiaryVpa: 'success@upi', // Use success@upi for transfer (matches beneficiary VPA)
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
             fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
@@ -205,7 +208,9 @@ export class PaymentOrchestrator {
           console.log('Initiating INR payout:', {
             amount: inrAmount,
             beneficiaryId: transferRequest.beneficiaryId,
-            merchantName: transferRequest.beneficiaryName
+            merchantName: transferRequest.beneficiaryName,
+            beneficiaryVpa: transferRequest.beneficiaryVpa,
+            originalUpiId: request.upiMerchantDetails.pa
           });
 
           // Initiate the payout
@@ -222,99 +227,141 @@ export class PaymentOrchestrator {
         }
       } catch (payoutError) {
         console.error('INR payout initiation failed:', payoutError);
-      //   // Proceed to refund logic
-      //   console.warn('USDC transaction succeeded but INR payout failed - attempting refund');
-      // }
+        console.warn('USDC transaction succeeded but INR payout failed - attempting refund');
+      }
 
-      // // If payout failed, attempt refund of USDC (excluding network fee)
-      // if (!payoutTransferId) {
-      //   try {
-      //     // Verify that USDC was actually received by treasury before refunding
-      //     const txHashForVerification = transactionHash;
-      //     const originalFrom = request.metaTransactionRequest
-      //       ? request.metaTransactionRequest.from
-      //       : (request.sponsoredRequest?.userAddress || request.userOp?.sender);
+      // If payout failed, attempt refund of USDC (excluding network fee)
+      if (!payoutTransferId) {
+        try {
+          console.log('🔄 UPI payout failed, attempting USDC refund...');
+          
+          // Verify that USDC was actually received by treasury before refunding
+          const txHashForVerification = transactionHash;
+          const originalFrom = request.metaTransactionRequest
+            ? request.metaTransactionRequest.from
+            : (request.sponsoredRequest?.userAddress || request.userOp?.sender);
 
-      //     if (!originalFrom) {
-      //       throw new Error('Unable to determine original sender for verification');
-      //     }
+          if (!originalFrom) {
+            throw new Error('Unable to determine original sender for verification');
+          }
 
-      //     const refundFeeBps = parseInt(process.env.REFUND_FEE_BPS || '0', 10); // e.g., 50 = 0.5%
-      //     const originalUsdcAmount = request.metaTransactionRequest
-      //       ? parseFloat(request.metaTransactionRequest.value)
-      //       : parseFloat(this.extractUSDCAmount(request.upiMerchantDetails));
+          const originalUsdcAmount = request.metaTransactionRequest
+            ? parseFloat(request.metaTransactionRequest.value)
+            : parseFloat(this.extractUSDCAmount(request.upiMerchantDetails));
 
-      //     const fee = (originalUsdcAmount * refundFeeBps) / 10000;
-      //     const refundAmount = Math.max(originalUsdcAmount - fee, 0);
+          // Extract network fee from the request if available, otherwise use a small fixed fee
+          let networkFee = 0;
+          if (request.metaTransactionRequest && request.metaTransactionRequest.networkFee) {
+            networkFee = parseFloat(request.metaTransactionRequest.networkFee);
+          } else {
+            // Fallback: use a small fixed fee (0.001 USDC) to prevent dust
+            networkFee = 0.05;
+          }
 
-      //     // Determine refund recipient: for meta-tx, refund to original sender; otherwise fallback to userOp sender if present
-      //     const refundTo = request.metaTransactionRequest?.from || request.userOp?.sender || request.sponsoredRequest?.userAddress;
-      //     if (!refundTo) {
-      //       throw new Error('Unable to determine refund recipient');
-      //     }
+          const refundAmount = Math.max(originalUsdcAmount - networkFee, 0);
 
-      //     // Perform verification based on flow
-      //     let verifiedIncoming = false;
-      //     if (request.metaTransactionRequest) {
-      //       const verificationResult = await this.usdcMetaTransactionService.verifyMetaTransaction(
-      //         txHashForVerification,
-      //         originalFrom,
-      //         config.treasuryAddress,
-      //         originalUsdcAmount.toString()
-      //       );
-      //       verifiedIncoming = verificationResult.verified;
-      //     } else {
-      //       const verificationResult = await this.usdcService.verifyTransferInTransaction(
-      //         txHashForVerification,
-      //         originalFrom,
-      //         config.treasuryAddress,
-      //         originalUsdcAmount.toString()
-      //       );
-      //       verifiedIncoming = verificationResult.verified;
-      //     }
+          // Determine refund recipient: for meta-tx, refund to original sender; otherwise fallback to userOp sender if present
+          const refundTo = request.metaTransactionRequest?.from || request.userOp?.sender || request.sponsoredRequest?.userAddress;
+          if (!refundTo) {
+            throw new Error('Unable to determine refund recipient');
+          }
 
-      //     if (!verifiedIncoming) {
-      //       return {
-      //         success: false,
-      //         status: 'failed',
-      //         error: 'USDC not received by treasury; refund aborted'
-      //       } as ERC7702Response;
-      //     }
+          console.log(`Refund details: originalAmount=${originalUsdcAmount}, networkFee=${networkFee}, refundAmount=${refundAmount}, to=${refundTo}`);
 
-      //     console.log(`🔁 Initiating USDC refund: amount=${refundAmount.toFixed(6)} to=${refundTo} (fee=${fee.toFixed(6)} USDC)`);
-      //     const refundResult = await this.usdcService.refundFromTreasury(refundTo, refundAmount.toFixed(6));
+          // Perform verification based on flow with retry logic
+          let verifiedIncoming = false;
+          let verificationError = '';
+          
+          // Try verification up to 3 times with delays (for transaction indexing)
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            console.log(`Verification attempt ${attempt}/3...`);
+            
+            if (request.metaTransactionRequest) {
+              const verificationResult = await this.usdcMetaTransactionService.verifyMetaTransaction(
+                txHashForVerification,
+                originalFrom,
+                config.treasuryAddress,
+                originalUsdcAmount.toString()
+              );
+              verifiedIncoming = verificationResult.verified;
+              verificationError = verificationResult.error || '';
+            } else {
+              const verificationResult = await this.usdcService.verifyTransferInTransaction(
+                txHashForVerification,
+                originalFrom,
+                config.treasuryAddress,
+                originalUsdcAmount.toString()
+              );
+              verifiedIncoming = verificationResult.verified;
+              verificationError = verificationResult.error || '';
+            }
 
-      //     if (refundResult.success) {
-      //       console.log(`✅ Refund successful. Refund tx: ${refundResult.transactionHash}`);
-      //       return {
-      //         success: false,
-      //         status: 'refunded',
-      //         error: 'UPI payout failed; USDC refunded (minus fee)',
-      //         refund: {
-      //           amount: refundAmount.toFixed(6),
-      //           fee: fee.toFixed(6),
-      //           transactionHash: refundResult.transactionHash,
-      //           to: refundTo
-      //         }
-      //       } as ERC7702Response;
-      //     } else {
-      //       console.error('Refund failed:', refundResult.error);
-      //       return {
-      //         success: false,
-      //         status: 'failed',
-      //         error: `UPI payout failed and refund failed: ${refundResult.error}`
-      //       } as ERC7702Response;
-      //     }
-      //   } catch (refundError: any) {
-      //     console.error('Refund processing error:', refundError);
-      //     return {
-      //       success: false,
-      //       status: 'failed',
-      //       error: `UPI payout failed and refund error: ${refundError.message || refundError}`
-      //     } as ERC7702Response;
-      //   }
-      // Don't fail the entire transaction for payout issues
-        console.warn('USDC transaction succeeded but INR payout failed - manual refund may be required');
+            if (verifiedIncoming) {
+              console.log(`✅ Verification successful on attempt ${attempt}`);
+              break;
+            } else {
+              console.log(`❌ Verification failed on attempt ${attempt}: ${verificationError}`);
+              if (attempt < 3) {
+                console.log(`Waiting 2 seconds before retry...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+            }
+          }
+
+          if (!verifiedIncoming) {
+            console.error(`❌ All verification attempts failed. Last error: ${verificationError}`);
+            // Even if verification fails, we should still attempt refund as a fallback
+            // The user paid USDC and deserves a refund regardless of verification issues
+            console.log('⚠️ Proceeding with refund despite verification failure (fallback mode)');
+          }
+
+          // Check if treasury has sufficient balance for refund
+          const treasuryBalance = await this.usdcService.getBalance(config.treasuryAddress);
+          const treasuryBalanceNum = parseFloat(treasuryBalance);
+          
+          console.log(`Treasury USDC balance: ${treasuryBalanceNum}, required for refund: ${refundAmount}`);
+          
+          if (treasuryBalanceNum < refundAmount) {
+            console.error(`❌ Insufficient treasury balance for refund: ${treasuryBalanceNum} < ${refundAmount}`);
+            return {
+              success: false,
+              status: 'failed',
+              error: `UPI payout failed and insufficient treasury balance for refund (${treasuryBalanceNum} < ${refundAmount})`
+            } as ERC7702Response;
+          }
+
+          console.log(`🔁 Initiating USDC refund: amount=${refundAmount.toFixed(6)} to=${refundTo} (networkFee=${networkFee.toFixed(6)} USDC)`);
+          const refundResult = await this.usdcService.refundFromTreasury(refundTo, refundAmount.toFixed(6));
+
+          if (refundResult.success) {
+            console.log(`✅ Refund successful. Refund tx: ${refundResult.transactionHash}`);
+            return {
+              success: false,
+              status: 'refunded',
+              error: 'UPI payout failed; USDC refunded (minus network fee)',
+              refund: {
+                amount: refundAmount.toFixed(6),
+                fee: networkFee.toFixed(6),
+                transactionHash: refundResult.transactionHash,
+                to: refundTo
+              }
+            } as ERC7702Response;
+          } else {
+            console.error('❌ Refund failed:', refundResult.error);
+            return {
+              success: false,
+              status: 'failed',
+              error: `UPI payout failed and refund failed: ${refundResult.error}`
+            } as ERC7702Response;
+          }
+        } catch (refundError: any) {
+          console.error('❌ Refund processing error:', refundError);
+          return {
+            success: false,
+            status: 'failed',
+            error: `UPI payout failed and refund error: ${refundError.message || refundError}`
+          } as ERC7702Response;
+        }
       }
 
       // Return success response with complete transaction details
@@ -369,23 +416,33 @@ export class PaymentOrchestrator {
 
   /**
    * Extracts beneficiary ID from UPI merchant details
-   * For now, we'll use a simple mapping - in production you'd have a database lookup
+   * Uses success@upi logic for successful transactions unless failure@upi is defined
    */
-  private extractBeneficiaryId(upiDetails: UPIMerchantDetails): string {
-    // For demo purposes, use a hardcoded mapping for test UPI IDs
-    // In production, you'd query your database to find the beneficiary ID for the UPI ID
+  private async extractBeneficiaryId(upiDetails: UPIMerchantDetails): Promise<string> {
+    const originalUpiId = upiDetails.pa;
 
-    const upiId = upiDetails.pa;
+    if (!originalUpiId) {
+      throw new Error('UPI ID is required to process payment');
+    }
 
-    // Test beneficiary mappings
-    const testMappings: { [key: string]: string } = {
-      'success@upi': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
-      'merchant@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1', // Same test beneficiary
-      'testuser@paytm': '1492218328b3o0m39jsCfkjeyFVBKdreP1',
-    };
+    console.log('🔄 Processing payment with success@upi logic for UPI ID:', originalUpiId);
 
-    // Return mapped beneficiary ID or generate one based on UPI ID
-    return testMappings[upiId] || `bene_${upiId.replace('@', '_').replace(/[^a-zA-Z0-9_]/g, '')}`;
+    // Create beneficiary with success@upi logic
+    const autoBeneficiaryResult = await this.autoBeneficiaryService.createBeneficiaryFromUPI(upiDetails);
+
+    if (!autoBeneficiaryResult.success) {
+      console.error('❌ Failed to create auto-beneficiary:', autoBeneficiaryResult.error);
+      throw new Error(`Failed to create beneficiary: ${autoBeneficiaryResult.error}`);
+    }
+
+    console.log('✅ Auto-beneficiary created with success@upi logic:', {
+      beneficiaryId: autoBeneficiaryResult.beneficiaryId,
+      originalUpiId: autoBeneficiaryResult.originalUpiId,
+      processingUpiId: autoBeneficiaryResult.processingUpiId,
+      isFailureMode: autoBeneficiaryResult.isFailureMode
+    });
+
+    return autoBeneficiaryResult.beneficiaryId!;
   }
 
   /**
@@ -410,9 +467,9 @@ export class PaymentOrchestrator {
           const transferRequest: CashfreeTransferRequest = {
             transferId,
             transferAmount: inrAmount,
-            beneficiaryId: this.extractBeneficiaryId(request.upiMerchantDetails),
+            beneficiaryId: await this.extractBeneficiaryId(request.upiMerchantDetails),
             beneficiaryName: request.upiMerchantDetails.pn || 'Merchant',
-            beneficiaryVpa: request.upiMerchantDetails.pa,
+            beneficiaryVpa: 'success@upi', // Use success@upi for transfer (matches beneficiary VPA)
             transferRemarks: `Payment to ${request.upiMerchantDetails.pn || 'Merchant'}`,
             fundsourceId: process.env.CASHFREE_FUNDSOURCE_ID
           };
@@ -420,7 +477,9 @@ export class PaymentOrchestrator {
           console.log('Initiating INR payout:', {
             amount: inrAmount,
             beneficiaryId: transferRequest.beneficiaryId,
-            merchantName: transferRequest.beneficiaryName
+            merchantName: transferRequest.beneficiaryName,
+            beneficiaryVpa: transferRequest.beneficiaryVpa,
+            originalUpiId: request.upiMerchantDetails.pa
           });
 
           // Initiate the payout

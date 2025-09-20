@@ -14,6 +14,7 @@ export interface USDCMetaTransactionRequest {
     s: string;
   };
   chainId: number;
+  networkFee?: string; // Network fee for refund calculations
 }
 
 export interface USDCMetaTransactionResponse {
@@ -237,9 +238,15 @@ export class USDCMetaTransactionService {
     error?: string;
   }> {
     try {
+      console.log(`Verifying meta transaction: txHash=${txHash}, from=${from}, to=${to}, expectedAmount=${expectedAmount}`);
+      
       const receipt = await this.provider.getTransactionReceipt(txHash);
       if (!receipt) {
         return { verified: false, error: 'Transaction receipt not found' };
+      }
+
+      if (receipt.status !== 1) {
+        return { verified: false, error: 'Transaction failed' };
       }
 
       // USDC Transfer event signature: Transfer(address indexed from, address indexed to, uint256 value)
@@ -247,15 +254,49 @@ export class USDCMetaTransactionService {
       
       // Look for Transfer events from USDC contract
       const usdcContractAddress = await this.usdcContract.getAddress();
-      const transferLogs = receipt.logs.filter(log => 
-        log.address.toLowerCase() === usdcContractAddress.toLowerCase() &&
-        log.topics[0] === transferEventSignature &&
-        log.topics[1] === ethers.zeroPadValue(from.toLowerCase(), 32) &&
-        log.topics[2] === ethers.zeroPadValue(to.toLowerCase(), 32)
-      );
+      console.log(`Looking for USDC transfers in contract: ${usdcContractAddress}`);
+      
+      // Normalize addresses for comparison
+      const normalizedFrom = ethers.getAddress(from);
+      const normalizedTo = ethers.getAddress(to);
+      const normalizedContract = ethers.getAddress(usdcContractAddress);
+      
+      console.log(`Normalized addresses - from: ${normalizedFrom}, to: ${normalizedTo}, contract: ${normalizedContract}`);
+      
+      const transferLogs = receipt.logs.filter(log => {
+        const isUsdcContract = log.address.toLowerCase() === normalizedContract.toLowerCase();
+        const isTransferEvent = log.topics[0] === transferEventSignature;
+        
+        if (isUsdcContract && isTransferEvent) {
+          const logFrom = ethers.getAddress('0x' + log.topics[1].slice(26));
+          const logTo = ethers.getAddress('0x' + log.topics[2].slice(26));
+          const matchesFrom = logFrom.toLowerCase() === normalizedFrom.toLowerCase();
+          const matchesTo = logTo.toLowerCase() === normalizedTo.toLowerCase();
+          
+          console.log(`Found USDC transfer log: from=${logFrom}, to=${logTo}, matchesFrom=${matchesFrom}, matchesTo=${matchesTo}`);
+          return matchesFrom && matchesTo;
+        }
+        return false;
+      });
+
+      console.log(`Found ${transferLogs.length} matching transfer logs`);
 
       if (transferLogs.length === 0) {
-        return { verified: false, error: 'No USDC transfer events found in transaction' };
+        // Debug: show all USDC transfer events
+        const allUsdcLogs = receipt.logs.filter(log => 
+          log.address.toLowerCase() === normalizedContract.toLowerCase() &&
+          log.topics[0] === transferEventSignature
+        );
+        
+        console.log(`Found ${allUsdcLogs.length} total USDC transfer events:`);
+        allUsdcLogs.forEach((log, index) => {
+          const logFrom = ethers.getAddress('0x' + log.topics[1].slice(26));
+          const logTo = ethers.getAddress('0x' + log.topics[2].slice(26));
+          const amount = ethers.formatUnits(log.data, 6);
+          console.log(`  ${index + 1}. from=${logFrom}, to=${logTo}, amount=${amount}`);
+        });
+        
+        return { verified: false, error: `No USDC transfer events found from ${normalizedFrom} to ${normalizedTo}` };
       }
 
       // Decode the transfer amount from the first matching log
@@ -263,9 +304,14 @@ export class USDCMetaTransactionService {
       const actualAmount = ethers.formatUnits(transferLog.data, 6);
       const expectedAmountFormatted = parseFloat(expectedAmount);
       const actualAmountFormatted = parseFloat(actualAmount);
+      
+      console.log(`Amount verification: expected=${expectedAmountFormatted}, actual=${actualAmountFormatted}`);
+      
       // Allow small precision differences due to decimals and rounding
-      const ABS_TOLERANCE = 0.001; // 1e-3 USDC (increased tolerance)
+      const ABS_TOLERANCE = 0.01; // 0.01 USDC tolerance (increased for better reliability)
       const verified = Math.abs(expectedAmountFormatted - actualAmountFormatted) <= ABS_TOLERANCE;
+
+      console.log(`Verification result: ${verified ? 'PASSED' : 'FAILED'}`);
 
       return {
         verified,

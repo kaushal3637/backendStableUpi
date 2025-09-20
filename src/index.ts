@@ -6,6 +6,7 @@ import paymentRoutes from './routes/payment';
 import cashfreeRoutes from './routes/cashfree';
 import customerRoutes from './routes/customers';
 import transactionRoutes from './routes/transactions';
+import autoBeneficiaryRoutes from './routes/autoBeneficiary';
 import sanctionsRoutes from './routes/sanctions';
 import {
   securityHeaders,
@@ -76,6 +77,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/cashfree', cashfreeRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/auto-beneficiary', autoBeneficiaryRoutes);
 app.use('/api/sanctions', sanctionsRoutes);
 
 // Health check for payout service
