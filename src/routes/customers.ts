@@ -4,6 +4,7 @@ import Joi from 'joi';
 import mongoose from 'mongoose';
 import Customer from '../models/Customer';
 import { CashfreeService } from '../services/cashfreeService';
+import { chainalysisService } from '../services/chainalysisService';
 import { APIResponse } from '../types';
 
 const router = Router();
@@ -27,6 +28,7 @@ const customerCreateSchema = Joi.object({
   phone: Joi.string().optional().trim(),
   upiId: Joi.string().required().trim(),
   upiName: Joi.string().optional().trim(),
+  walletAddress: Joi.string().optional().trim(), // Optional wallet address for sanctions screening
   isTestMode: Joi.boolean().default(true)
 });
 
@@ -79,6 +81,41 @@ router.post('/create', async (req: Request, res: Response) => {
       } as APIResponse);
     }
 
+    // Perform sanctions screening if wallet address is provided
+    let sanctionsResult: {
+      isSanctioned: boolean;
+      identifications: any[];
+      screenedAt: Date;
+    } = {
+      isSanctioned: false,
+      identifications: [],
+      screenedAt: new Date()
+    };
+
+    if (customerData.walletAddress) {
+      try {
+        console.log(`Performing sanctions screening for wallet: ${customerData.walletAddress}`);
+        sanctionsResult = await chainalysisService.checkSanctions(customerData.walletAddress);
+        
+        if (sanctionsResult.isSanctioned) {
+          console.warn(`Sanctions detected for wallet ${customerData.walletAddress}:`, sanctionsResult.identifications);
+          return res.status(403).json({
+            success: false,
+            error: 'Wallet address is associated with sanctioned entities',
+            data: {
+              sanctionsIdentifications: sanctionsResult.identifications,
+              screenedAt: sanctionsResult.screenedAt
+            }
+          } as APIResponse);
+        }
+      } catch (error: any) {
+        console.error('Sanctions screening failed:', error.message);
+        // In production, you might want to be more strict about this
+        // For now, we'll allow the customer creation but log the error
+        console.warn('Allowing customer creation despite sanctions screening failure');
+      }
+    }
+
     // Generate unique customer ID
     const customerId = Customer.generateCustomerId();
 
@@ -96,7 +133,11 @@ router.post('/create', async (req: Request, res: Response) => {
       qrCodeData,
       isTestMode: customerData.isTestMode,
       isActive: true,
-      isBeneficiaryAdded: false
+      isBeneficiaryAdded: false,
+      sanctionsScreened: customerData.walletAddress ? true : false,
+      sanctionsScreenedAt: customerData.walletAddress ? sanctionsResult.screenedAt : undefined,
+      isSanctioned: sanctionsResult.isSanctioned,
+      sanctionsIdentifications: sanctionsResult.identifications
     });
 
     const savedCustomer = await customer.save();
@@ -112,6 +153,8 @@ router.post('/create', async (req: Request, res: Response) => {
         upiId: savedCustomer.upiId,
         qrCodeData: savedCustomer.qrCodeData,
         isTestMode: savedCustomer.isTestMode,
+        sanctionsScreened: savedCustomer.sanctionsScreened,
+        isSanctioned: savedCustomer.isSanctioned,
         createdAt: savedCustomer.createdAt
       },
       message: 'Customer created successfully'
@@ -330,6 +373,9 @@ router.get('/', async (req: Request, res: Response) => {
           isTestMode: customer.isTestMode,
           totalPaid: customer.totalPaid,
           transactionCount: customer.transactionCount,
+          sanctionsScreened: customer.sanctionsScreened,
+          isSanctioned: customer.isSanctioned,
+          sanctionsScreenedAt: customer.sanctionsScreenedAt,
           createdAt: customer.createdAt
         })),
         pagination: {
@@ -346,6 +392,89 @@ router.get('/', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Internal server error during customers retrieval'
+    } as APIResponse);
+  }
+});
+
+/**
+ * POST /api/customers/sanctions/check
+ * Check if a wallet address is sanctioned
+ */
+router.post('/sanctions/check', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== config.apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    // Validate request body
+    const { walletAddress } = req.body;
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required'
+      } as APIResponse);
+    }
+
+    // Perform sanctions screening
+    const sanctionsResult = await chainalysisService.checkSanctions(walletAddress);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        walletAddress,
+        isSanctioned: sanctionsResult.isSanctioned,
+        identifications: sanctionsResult.identifications,
+        screenedAt: sanctionsResult.screenedAt
+      },
+      message: sanctionsResult.isSanctioned ? 'Wallet address is sanctioned' : 'Wallet address is clean'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Sanctions check error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during sanctions check'
+    } as APIResponse);
+  }
+});
+
+/**
+ * GET /api/customers/sanctions/status
+ * Get Chainalysis API status and configuration
+ */
+router.get('/sanctions/status', async (req: Request, res: Response) => {
+  try {
+    // Validate API key
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey || apiKey !== config.apiKey) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid API key'
+      } as APIResponse);
+    }
+
+    const apiStatus = await chainalysisService.getApiStatus();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        isConfigured: apiStatus.isConfigured,
+        rateLimitRemaining: apiStatus.rateLimitRemaining,
+        apiUrl: config.chainalysisApiUrl
+      },
+      message: 'Sanctions API status retrieved successfully'
+    } as APIResponse);
+
+  } catch (error: any) {
+    console.error('Sanctions status check error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error during status check'
     } as APIResponse);
   }
 });

@@ -84,6 +84,25 @@ const CustomerSchema = new mongoose.Schema({
     default: 0
   },
 
+  // Sanctions screening
+  sanctionsScreened: {
+    type: Boolean,
+    default: false
+  },
+  sanctionsScreenedAt: {
+    type: Date
+  },
+  isSanctioned: {
+    type: Boolean,
+    default: false
+  },
+  sanctionsIdentifications: [{
+    category: String,
+    name: String,
+    description: String,
+    url: String
+  }],
+
   // Timestamps
   createdAt: {
     type: Date,
@@ -184,6 +203,15 @@ interface ICustomer extends mongoose.Document {
   totalReceived: number;
   totalPaid: number;
   transactionCount: number;
+  sanctionsScreened: boolean;
+  sanctionsScreenedAt?: Date;
+  isSanctioned: boolean;
+  sanctionsIdentifications: Array<{
+    category: string;
+    name: string;
+    description: string;
+    url: string;
+  }>;
   createdAt: Date;
   updatedAt: Date;
   lastPaymentAt?: Date;

@@ -18,6 +18,10 @@ export class ConfigService {
   // UPI Configuration
   public readonly upiConfig: UPIConfig;
 
+  // Chainalysis Sanctions API Configuration
+  public readonly chainalysisApiKey: string;
+  public readonly chainalysisApiUrl: string;
+
   // Blockchain Configurations
   public readonly blockchainConfigs: Record<number, BlockchainConfig>;
 
@@ -40,6 +44,10 @@ export class ConfigService {
       apiKey: process.env.UPI_API_KEY || '',
       merchantId: process.env.UPI_MERCHANT_ID || '',
     };
+
+    // Chainalysis Sanctions API Configuration
+    this.chainalysisApiKey = process.env.CHAINALYSIS_API_KEY || '';
+    this.chainalysisApiUrl = 'https://public.chainalysis.com/api/v1';
 
     // Get RPC API key (try multiple environment variable names for compatibility)
     const rpcApiKey = process.env.RPC_API_KEY || process.env.ALCHEMY_API_KEY || this.getRequiredEnv('ALCHEMY_API_KEY');

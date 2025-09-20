@@ -6,6 +6,7 @@ import paymentRoutes from './routes/payment';
 import cashfreeRoutes from './routes/cashfree';
 import customerRoutes from './routes/customers';
 import transactionRoutes from './routes/transactions';
+import sanctionsRoutes from './routes/sanctions';
 import {
   securityHeaders,
   createRateLimiter,
@@ -75,6 +76,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/cashfree', cashfreeRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/sanctions', sanctionsRoutes);
 
 // Health check for payout service
 app.get('/api/payouts/health', async (req: express.Request, res: express.Response) => {

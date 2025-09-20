@@ -1,0 +1,62 @@
+### Test: New clean wallet → calls Chainalysis, inserts row, addedToAllowlist true
+POST http://localhost:3001/api/sanctions/check
+X-API-KEY: {{API_KEY}}
+Content-Type: application/json
+
+{
+  "walletAddress": "0x4382E4d32F6Dc72812B51B956f43253d85cB23FD"
+}
+
+### Test: New sanctioned wallet → calls Chainalysis, inserts row, addedToAllowlist false
+POST http://localhost:3001/api/sanctions/check
+X-API-KEY: {{API_KEY}}
+Content-Type: application/json
+
+{
+  "walletAddress": "0x1da5821544e25c636c1417ba96ade4cf6d2f9b5a"
+}
+
+### Test: Existing wallet (clean) → should hit DB only
+POST http://localhost:3001/api/sanctions/check
+X-API-KEY: {{API_KEY}}
+Content-Type: application/json
+
+{
+  "walletAddress": "0x4382E4d32F6Dc72812B51B956f43253d85cB23FD"
+}
+
+### Test: Existing wallet (sanctioned) → should hit DB only
+POST http://localhost:3001/api/sanctions/check
+X-API-KEY: {{API_KEY}}
+Content-Type: application/json
+
+{
+  "walletAddress": "0x1da5821544e25c636c1417ba96ade4cf6d2f9b5a"
+}
+
+### Test: Invalid wallet address format
+POST http://localhost:3001/api/sanctions/check
+X-API-KEY: {{API_KEY}}
+Content-Type: application/json
+
+{
+  "walletAddress": "invalid-address"
+}
+
+### Test: Missing wallet address
+POST http://localhost:3001/api/sanctions/check
+X-API-KEY: {{API_KEY}}
+Content-Type: application/json
+
+{
+}
+
+### Test: Missing API key
+POST http://localhost:3001/api/sanctions/check
+Content-Type: application/json
+
+{
+  "walletAddress": "0x4382E4d32F6Dc72812B51B956f43253d85cB23FD"
+}
+
+

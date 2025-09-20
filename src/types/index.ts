@@ -170,3 +170,21 @@ export interface UPIConfig {
   apiKey: string;
   merchantId: string;
 }
+
+// Chainalysis Sanctions API types
+export interface ChainalysisSanctionsIdentification {
+  category: string | null;
+  name: string | null;
+  description: string | null;
+  url: string | null;
+}
+
+export interface ChainalysisSanctionsResponse {
+  identifications: ChainalysisSanctionsIdentification[];
+}
+
+export interface SanctionsScreeningResult {
+  isSanctioned: boolean;
+  identifications: ChainalysisSanctionsIdentification[];
+  screenedAt: Date;
+}
