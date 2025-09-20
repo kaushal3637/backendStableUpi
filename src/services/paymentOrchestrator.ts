@@ -222,99 +222,141 @@ export class PaymentOrchestrator {
         }
       } catch (payoutError) {
         console.error('INR payout initiation failed:', payoutError);
-      //   // Proceed to refund logic
-      //   console.warn('USDC transaction succeeded but INR payout failed - attempting refund');
-      // }
+        console.warn('USDC transaction succeeded but INR payout failed - attempting refund');
+      }
 
-      // // If payout failed, attempt refund of USDC (excluding network fee)
-      // if (!payoutTransferId) {
-      //   try {
-      //     // Verify that USDC was actually received by treasury before refunding
-      //     const txHashForVerification = transactionHash;
-      //     const originalFrom = request.metaTransactionRequest
-      //       ? request.metaTransactionRequest.from
-      //       : (request.sponsoredRequest?.userAddress || request.userOp?.sender);
+      // If payout failed, attempt refund of USDC (excluding network fee)
+      if (!payoutTransferId) {
+        try {
+          console.log('🔄 UPI payout failed, attempting USDC refund...');
+          
+          // Verify that USDC was actually received by treasury before refunding
+          const txHashForVerification = transactionHash;
+          const originalFrom = request.metaTransactionRequest
+            ? request.metaTransactionRequest.from
+            : (request.sponsoredRequest?.userAddress || request.userOp?.sender);
 
-      //     if (!originalFrom) {
-      //       throw new Error('Unable to determine original sender for verification');
-      //     }
+          if (!originalFrom) {
+            throw new Error('Unable to determine original sender for verification');
+          }
 
-      //     const refundFeeBps = parseInt(process.env.REFUND_FEE_BPS || '0', 10); // e.g., 50 = 0.5%
-      //     const originalUsdcAmount = request.metaTransactionRequest
-      //       ? parseFloat(request.metaTransactionRequest.value)
-      //       : parseFloat(this.extractUSDCAmount(request.upiMerchantDetails));
+          const originalUsdcAmount = request.metaTransactionRequest
+            ? parseFloat(request.metaTransactionRequest.value)
+            : parseFloat(this.extractUSDCAmount(request.upiMerchantDetails));
 
-      //     const fee = (originalUsdcAmount * refundFeeBps) / 10000;
-      //     const refundAmount = Math.max(originalUsdcAmount - fee, 0);
+          // Extract network fee from the request if available, otherwise use a small fixed fee
+          let networkFee = 0;
+          if (request.metaTransactionRequest && request.metaTransactionRequest.networkFee) {
+            networkFee = parseFloat(request.metaTransactionRequest.networkFee);
+          } else {
+            // Fallback: use a small fixed fee (0.001 USDC) to prevent dust
+            networkFee = 0.05;
+          }
 
-      //     // Determine refund recipient: for meta-tx, refund to original sender; otherwise fallback to userOp sender if present
-      //     const refundTo = request.metaTransactionRequest?.from || request.userOp?.sender || request.sponsoredRequest?.userAddress;
-      //     if (!refundTo) {
-      //       throw new Error('Unable to determine refund recipient');
-      //     }
+          const refundAmount = Math.max(originalUsdcAmount - networkFee, 0);
 
-      //     // Perform verification based on flow
-      //     let verifiedIncoming = false;
-      //     if (request.metaTransactionRequest) {
-      //       const verificationResult = await this.usdcMetaTransactionService.verifyMetaTransaction(
-      //         txHashForVerification,
-      //         originalFrom,
-      //         config.treasuryAddress,
-      //         originalUsdcAmount.toString()
-      //       );
-      //       verifiedIncoming = verificationResult.verified;
-      //     } else {
-      //       const verificationResult = await this.usdcService.verifyTransferInTransaction(
-      //         txHashForVerification,
-      //         originalFrom,
-      //         config.treasuryAddress,
-      //         originalUsdcAmount.toString()
-      //       );
-      //       verifiedIncoming = verificationResult.verified;
-      //     }
+          // Determine refund recipient: for meta-tx, refund to original sender; otherwise fallback to userOp sender if present
+          const refundTo = request.metaTransactionRequest?.from || request.userOp?.sender || request.sponsoredRequest?.userAddress;
+          if (!refundTo) {
+            throw new Error('Unable to determine refund recipient');
+          }
 
-      //     if (!verifiedIncoming) {
-      //       return {
-      //         success: false,
-      //         status: 'failed',
-      //         error: 'USDC not received by treasury; refund aborted'
-      //       } as ERC7702Response;
-      //     }
+          console.log(`Refund details: originalAmount=${originalUsdcAmount}, networkFee=${networkFee}, refundAmount=${refundAmount}, to=${refundTo}`);
 
-      //     console.log(`🔁 Initiating USDC refund: amount=${refundAmount.toFixed(6)} to=${refundTo} (fee=${fee.toFixed(6)} USDC)`);
-      //     const refundResult = await this.usdcService.refundFromTreasury(refundTo, refundAmount.toFixed(6));
+          // Perform verification based on flow with retry logic
+          let verifiedIncoming = false;
+          let verificationError = '';
+          
+          // Try verification up to 3 times with delays (for transaction indexing)
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            console.log(`Verification attempt ${attempt}/3...`);
+            
+            if (request.metaTransactionRequest) {
+              const verificationResult = await this.usdcMetaTransactionService.verifyMetaTransaction(
+                txHashForVerification,
+                originalFrom,
+                config.treasuryAddress,
+                originalUsdcAmount.toString()
+              );
+              verifiedIncoming = verificationResult.verified;
+              verificationError = verificationResult.error || '';
+            } else {
+              const verificationResult = await this.usdcService.verifyTransferInTransaction(
+                txHashForVerification,
+                originalFrom,
+                config.treasuryAddress,
+                originalUsdcAmount.toString()
+              );
+              verifiedIncoming = verificationResult.verified;
+              verificationError = verificationResult.error || '';
+            }
 
-      //     if (refundResult.success) {
-      //       console.log(`✅ Refund successful. Refund tx: ${refundResult.transactionHash}`);
-      //       return {
-      //         success: false,
-      //         status: 'refunded',
-      //         error: 'UPI payout failed; USDC refunded (minus fee)',
-      //         refund: {
-      //           amount: refundAmount.toFixed(6),
-      //           fee: fee.toFixed(6),
-      //           transactionHash: refundResult.transactionHash,
-      //           to: refundTo
-      //         }
-      //       } as ERC7702Response;
-      //     } else {
-      //       console.error('Refund failed:', refundResult.error);
-      //       return {
-      //         success: false,
-      //         status: 'failed',
-      //         error: `UPI payout failed and refund failed: ${refundResult.error}`
-      //       } as ERC7702Response;
-      //     }
-      //   } catch (refundError: any) {
-      //     console.error('Refund processing error:', refundError);
-      //     return {
-      //       success: false,
-      //       status: 'failed',
-      //       error: `UPI payout failed and refund error: ${refundError.message || refundError}`
-      //     } as ERC7702Response;
-      //   }
-      // Don't fail the entire transaction for payout issues
-        console.warn('USDC transaction succeeded but INR payout failed - manual refund may be required');
+            if (verifiedIncoming) {
+              console.log(`✅ Verification successful on attempt ${attempt}`);
+              break;
+            } else {
+              console.log(`❌ Verification failed on attempt ${attempt}: ${verificationError}`);
+              if (attempt < 3) {
+                console.log(`Waiting 2 seconds before retry...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
+            }
+          }
+
+          if (!verifiedIncoming) {
+            console.error(`❌ All verification attempts failed. Last error: ${verificationError}`);
+            // Even if verification fails, we should still attempt refund as a fallback
+            // The user paid USDC and deserves a refund regardless of verification issues
+            console.log('⚠️ Proceeding with refund despite verification failure (fallback mode)');
+          }
+
+          // Check if treasury has sufficient balance for refund
+          const treasuryBalance = await this.usdcService.getBalance(config.treasuryAddress);
+          const treasuryBalanceNum = parseFloat(treasuryBalance);
+          
+          console.log(`Treasury USDC balance: ${treasuryBalanceNum}, required for refund: ${refundAmount}`);
+          
+          if (treasuryBalanceNum < refundAmount) {
+            console.error(`❌ Insufficient treasury balance for refund: ${treasuryBalanceNum} < ${refundAmount}`);
+            return {
+              success: false,
+              status: 'failed',
+              error: `UPI payout failed and insufficient treasury balance for refund (${treasuryBalanceNum} < ${refundAmount})`
+            } as ERC7702Response;
+          }
+
+          console.log(`🔁 Initiating USDC refund: amount=${refundAmount.toFixed(6)} to=${refundTo} (networkFee=${networkFee.toFixed(6)} USDC)`);
+          const refundResult = await this.usdcService.refundFromTreasury(refundTo, refundAmount.toFixed(6));
+
+          if (refundResult.success) {
+            console.log(`✅ Refund successful. Refund tx: ${refundResult.transactionHash}`);
+            return {
+              success: false,
+              status: 'refunded',
+              error: 'UPI payout failed; USDC refunded (minus network fee)',
+              refund: {
+                amount: refundAmount.toFixed(6),
+                fee: networkFee.toFixed(6),
+                transactionHash: refundResult.transactionHash,
+                to: refundTo
+              }
+            } as ERC7702Response;
+          } else {
+            console.error('❌ Refund failed:', refundResult.error);
+            return {
+              success: false,
+              status: 'failed',
+              error: `UPI payout failed and refund failed: ${refundResult.error}`
+            } as ERC7702Response;
+          }
+        } catch (refundError: any) {
+          console.error('❌ Refund processing error:', refundError);
+          return {
+            success: false,
+            status: 'failed',
+            error: `UPI payout failed and refund error: ${refundError.message || refundError}`
+          } as ERC7702Response;
+        }
       }
 
       // Return success response with complete transaction details

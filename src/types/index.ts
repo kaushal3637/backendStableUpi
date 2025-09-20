@@ -55,6 +55,7 @@ export interface USDCMetaTransactionRequest {
   nonce: string; // hex string
   signature: USDCMetaTransactionSignature;
   chainId: number;
+  networkFee?: string; // Network fee for refund calculations
 }
 
 export interface USDCMetaTransactionResponse {

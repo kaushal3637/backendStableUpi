@@ -106,6 +106,7 @@ const usdcMetaTransactionRequestSchema = Joi.object({
     .required(),
   signature: usdcMetaTransactionSignatureSchema.required(),
   chainId: Joi.number().valid(1, 42161, 11155111, 421614).required(),
+  networkFee: Joi.string().optional(),
 });
 
 const prepareMetaTransactionRequestSchema = Joi.object({
@@ -255,6 +256,13 @@ router.post("/process", async (req: Request, res: Response) => {
         success: true,
         data: result,
         message: "Payment processed successfully",
+      } as APIResponse);
+    } else if (result.status === 'refunded') {
+      // Special case: refund was processed successfully
+      res.status(200).json({
+        success: false,
+        data: result,
+        message: "Payment failed but refund processed successfully",
       } as APIResponse);
     } else {
       res.status(400).json({
