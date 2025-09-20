@@ -108,9 +108,7 @@ export class CashfreeService {
       SECRET_KEY: process.env.CASHFREE_SECRET_KEY || '',
       CLIENT_ID: process.env.CASHFREE_CLIENT_ID || '',
       CLIENT_SECRET: process.env.CASHFREE_CLIENT_SECRET || '',
-      BASE_URL: process.env.NODE_ENV === 'production'
-        ? 'https://api.cashfree.com'
-        : 'https://sandbox.cashfree.com',
+      BASE_URL: 'https://sandbox.cashfree.com',
       FUNDSOURCE_ID: process.env.CASHFREE_FUNDSOURCE_ID || 'CASHFREE_DEFAULT'
     };
   }
